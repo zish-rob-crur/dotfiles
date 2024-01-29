@@ -1,0 +1,86 @@
+# name: Flexoki (Dark)
+# author: Kepano
+# license: MIT
+# upstream: https://stephango.com/flexoki
+# blurb: An inky color scheme for prose and code[colors]
+
+[colors]
+ansi = [
+  "#100F0F", #Black
+  "#AF3029", # Red
+  "#66800B", # Green
+  "#AD8301", # Yellow
+  "#205EA6", # Blue
+  "#5E409D", # Purple
+  "#24837B", # Cyan
+  "#CECDC3", # White
+]
+brights = [
+  "#575653", # Black
+  "#D14D41", # Red
+  "#879A39", # Green
+  "#D0A215", # Yellow
+  "#4385BE", # Blue
+  "#8B7EC8", # Purple
+  "#3AA99F", # Cyan
+  "#FFFCF0", # White
+]
+foreground = "#CECDC3"
+background = "#100F0F"
+
+cursor_bg = "#CECDC3"
+cursor_border = "#CECDC3"
+cursor_fg = "#100F0F"
+selection_bg = "#282726"
+selection_fg = "#CECDC3"
+
+[colors.indexed]
+
+[colors.tab_bar]
+background = '#282a36'
+
+[colors.tab_bar.active_tab]
+bg_color = '#bd93f9'
+fg_color = '#282a36'
+intensity = 'Normal'
+italic = false
+strikethrough = false
+underline = 'None'
+
+[colors.tab_bar.inactive_tab]
+bg_color = '#282a36'
+fg_color = '#f8f8f2'
+intensity = 'Normal'
+italic = false
+strikethrough = false
+underline = 'None'
+
+[colors.tab_bar.inactive_tab_hover]
+bg_color = '#6272a4'
+fg_color = '#f8f8f2'
+intensity = 'Normal'
+italic = true
+strikethrough = false
+underline = 'None'
+
+[colors.tab_bar.new_tab]
+bg_color = '#282a36'
+fg_color = '#f8f8f2'
+intensity = 'Normal'
+italic = false
+strikethrough = false
+underline = 'None'
+
+[colors.tab_bar.new_tab_hover]
+bg_color = '#ff79c6'
+fg_color = '#f8f8f2'
+intensity = 'Normal'
+italic = true
+strikethrough = false
+underline = 'None'
+
+[metadata]
+aliases = ["Flexoki Dark"]
+name = "Flexoki Dark"
+origin_url = "https://stephango.com/flexoki"
+wezterm_version = "Always"
