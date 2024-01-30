@@ -1,8 +1,7 @@
 local wezterm = require 'wezterm'
 
 function getColordir()
-    wezterm.log_error('Config Dir ' .. wezterm.config_dir)
-    local color_dir = "~/GitHubRepos/dotfiles/wezterm/colors"
+    local color_dir = os.getenv("HOME") .. "/GitHubRepos/dotfiles/wezterm/colors"
     wezterm.log_error('Color Dir ' .. color_dir)
     return color_dir
 end
@@ -17,11 +16,18 @@ config.tab_max_width = 25
 config.show_new_tab_button_in_tab_bar = false
 config.hide_tab_bar_if_only_one_tab = true
 config.window_background_opacity = 0.97
+config.use_fancy_tab_bar = true
+config.tab_bar_at_bottom = true
 config.inactive_pane_hsb = {
     hue = 1.0,
     saturation = 1.0,
     brightness = 1.0
 }
+config.window_frame = {
+        inactive_titlebar_bg = "none",
+        active_titlebar_bg = "none",
+}
+config.macos_window_background_blur = 50
 config.max_fps = 120
 config.keys = {{
     key = "LeftArrow",
