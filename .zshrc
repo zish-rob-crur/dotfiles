@@ -188,3 +188,4 @@ fi
 unset __conda_setup
 # <<< conda initialize <<<
 
+alias condanewenv = 'conda create -n "${PWD##*/}" python=3.10'

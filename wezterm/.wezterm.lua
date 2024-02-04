@@ -1,4 +1,5 @@
 local wezterm = require 'wezterm'
+local mux = wezterm.mux
 
 function getColordir()
     local color_dir = os.getenv("HOME") .. "/GitHubRepos/dotfiles/wezterm/colors"
@@ -17,15 +18,11 @@ config.show_new_tab_button_in_tab_bar = false
 config.hide_tab_bar_if_only_one_tab = true
 config.window_background_opacity = 0.97
 config.use_fancy_tab_bar = true
-config.tab_bar_at_bottom = true
+config.tab_bar_at_bottom = false
 config.inactive_pane_hsb = {
     hue = 1.0,
     saturation = 1.0,
     brightness = 1.0
-}
-config.window_frame = {
-        inactive_titlebar_bg = "none",
-        active_titlebar_bg = "none",
 }
 config.macos_window_background_blur = 50
 config.max_fps = 120
@@ -60,4 +57,10 @@ config.window_padding = {
     top = 12,
     bottom = 7
 }
+
+wezterm.on("gui-startup", function()
+  local tab, pane, window = mux.spawn_window{}
+  window:gui_window():maximize()
+end)
+
 return config

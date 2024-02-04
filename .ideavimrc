@@ -1,0 +1,20 @@
+source ~/.vimrc
+
+Plugin 'easymotion/vim-easymotion'
+Plug 'https://github.com/easymotion/vim-easymotion'
+Plug 'vim-easymotion'
+set easymotion
+
+Plugin 'preservim/nerdtree'
+Plug 'https://github.com/preservim/nerdtree'
+Plug 'nerdtree'
+set NERDTree
+
+Plugin 'terryma/vim-multiple-cursors'
+Plug 'https://github.com/terryma/vim-multiple-cursors'
+Plug 'vim-multiple-cursors'
+set multiple-cursors
+
+
+" 在normal模式下，按一下 <leader><leader> 在按下t
+nmap <leader><leader>t :NERDTreeToggle<CR>
