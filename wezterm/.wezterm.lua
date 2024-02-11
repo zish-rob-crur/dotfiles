@@ -6,7 +6,6 @@ function getColordir()
     wezterm.log_error('Color Dir ' .. color_dir)
     return color_dir
 end
-
 local config = {}
 config.font = wezterm.font 'JetBrains Mono'
 config.color_scheme_dirs = {getColordir()}

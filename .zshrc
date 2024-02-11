@@ -99,9 +99,6 @@ source $ZSH/oh-my-zsh.sh
 # Example aliases
 # alias zshconfig="mate ~/.zshrc"
 # alias ohmyzsh="mate ~/.oh-my-zsh"
-alias vim="nvim"
-
-
 
 ### Added by Zinit's installer
 if [[ ! -f $HOME/.local/share/zinit/zinit.git/zinit.zsh ]]; then
@@ -145,7 +142,6 @@ ssh() {
     fi
 }
 
-alias grep="rg"
 autoload -U add-zsh-hook
 
 load-nvmrc() {
@@ -172,9 +168,9 @@ conda_auto_activate() {
 add-zsh-hook chpwd conda_auto_activate 
 conda_auto_activate
 
-
 # >>> conda initialize >>>
 # !! Contents within this block are managed by 'conda init' !!
+#
 __conda_setup="$('/opt/homebrew/Caskroom/miniconda/base/bin/conda' 'shell.zsh' 'hook' 2> /dev/null)"
 if [ $? -eq 0 ]; then
     eval "$__conda_setup"
@@ -188,4 +184,7 @@ fi
 unset __conda_setup
 # <<< conda initialize <<<
 
-alias condanewenv = 'conda create -n "${PWD##*/}" python=3.10'
+alias python="python3"
+alias ls="exa"
+alias grep="rg"
+alias vim="nvim"
