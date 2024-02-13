@@ -184,7 +184,14 @@ fi
 unset __conda_setup
 # <<< conda initialize <<<
 
+# >>> NVM >>>
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh" # This loads nvm
+# <<< NVM
+
+# >>> My Lias >>>
 alias python="python3"
 alias ls="exa"
 alias grep="rg"
 alias vim="nvim"
+# <<< Alias

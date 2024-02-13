@@ -6,6 +6,7 @@ function getColordir()
     wezterm.log_error('Color Dir ' .. color_dir)
     return color_dir
 end
+
 local config = {}
 config.font = wezterm.font 'JetBrains Mono'
 config.color_scheme_dirs = {getColordir()}
@@ -56,10 +57,5 @@ config.window_padding = {
     top = 12,
     bottom = 7
 }
-
-wezterm.on("gui-startup", function()
-  local tab, pane, window = mux.spawn_window{}
-  window:gui_window():maximize()
-end)
 
 return config
