@@ -19,4 +19,5 @@ nnoremap <leader>dgg :%s/\n//g<CR>
 " 在norm 模式下, 按下 leader + dnn 替换\n 回车
 nnoremap <leader>dnn :%s/\\n//g<CR>
 
-
+" leader + c 关闭当前buffer
+nnoremap <leader>c :bd<CR>

@@ -205,9 +205,7 @@ alias grep="rg"
 alias vim="nvim"
 # <<< Alias
 
-# >>> PATH ENV
-export PATH="$HOME/.local/share/nvim/mason/bin/:$PATH"
-# <<< PATH ENV
+
 
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh

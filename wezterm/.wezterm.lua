@@ -2,6 +2,9 @@ local wezterm = require 'wezterm'
 local mux = wezterm.mux
 local config = wezterm.config_builder()
 
+local LightTheme = "Flexoki Light"
+local DarkTheme = "Flexoki Dark"
+
 function get_colordir()
   local color_dir = os.getenv("HOME") .. "/GitHubRepos/dotfiles/wezterm/colors"
   wezterm.log_error('Color Dir ' .. color_dir)
@@ -9,7 +12,10 @@ function get_colordir()
 end
 
 function get_theme()
-  return "Flexoki Dark"
+  if wezterm.gui.get_appearance() == "Light" then
+    return LightTheme
+  end
+  return DarkTheme
 end
 
 config.font = wezterm.font 'JetBrains Mono'
@@ -56,7 +62,16 @@ config.window_padding = {
   top = 12,
   bottom = 7
 }
-
+wezterm.on("update-right-status", function(window, pane)
+  local overrides = {}
+  if wezterm.gui.get_appearance() == "Light" then
+    overrides.theme = LightTheme
+  else
+    overrides.theme = DarkTheme
+  end
+  window:set_config_overrides(overrides)
+end
+)
 wezterm.plugin.require("https://github.com/nekowinston/wezterm-bar").apply_to_config(config, {
   position = "top",
   max_width = 32,
@@ -85,8 +100,8 @@ wezterm.plugin.require("https://github.com/nekowinston/wezterm-bar").apply_to_co
     },
   },
   clock = {           -- note that this overrides the whole set_right_status
-    enabled = false,
-    format = "%H:%M", -- use https://wezfurlong.org/wezterm/config/lua/wezterm.time/Time/format.html
+    enabled = true,
+    format = "%Y-%m-%d %H:%M:%S", -- use https://wezfurlong.org/wezterm/config/lua/wezterm.time/Time/format.html
   },
 })
 
