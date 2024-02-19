@@ -177,37 +177,6 @@ conda_auto_activate() {
 add-zsh-hook chpwd conda_auto_activate 
 conda_auto_activate
 
-# >>> conda initialize >>>
-# !! Contents within this block are managed by 'conda init' !!
-#
-__conda_setup="$('/opt/homebrew/Caskroom/miniconda/base/bin/conda' 'shell.zsh' 'hook' 2> /dev/null)"
-if [ $? -eq 0 ]; then
-    eval "$__conda_setup"
-else
-    if [ -f "/opt/homebrew/Caskroom/miniconda/base/etc/profile.d/conda.sh" ]; then
-        . "/opt/homebrew/Caskroom/miniconda/base/etc/profile.d/conda.sh"
-    else
-        export PATH="/opt/homebrew/Caskroom/miniconda/base/bin:$PATH"
-    fi
-fi
-unset __conda_setup
-# <<< conda initialize <<<
-
-# >>> conda initialize Linux >>>
-# !! Contents within this block are managed by 'conda init' !!
-__conda_setup="$('~/miniconda3/bin/conda' 'shell.zsh' 'hook' 2> /dev/null)"
-if [ $? -eq 0 ]; then
-    eval "$__conda_setup"
-else
-    if [ -f "~/miniconda3/etc/profile.d/conda.sh" ]; then
-        . "~/miniconda3/etc/profile.d/conda.sh"
-    else
-        export PATH="~/miniconda3/bin:$PATH"
-    fi
-fi
-unset __conda_setup
-# <<< conda initialize <<<
-
 # >>> NVM >>>
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh" # This loads nvm
@@ -220,7 +189,43 @@ alias grep="rg"
 alias vim="nvim"
 # <<< Alias
 
-
-
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
+
+# Conda initialize block
+# Determine OS type
+case "$(uname -s)" in
+    Linux*)     os=Linux;;
+    Darwin*)    os=Mac;;
+    *)          os=Unknown;;
+esac
+
+# Initialize Conda for Mac
+if [ "$os" = "Mac" ]; then
+    __conda_setup="$('/opt/homebrew/Caskroom/miniconda/base/bin/conda' 'shell.zsh' 'hook' 2> /dev/null)"
+    if [ $? -eq 0 ]; then
+        eval "$__conda_setup"
+    else
+        if [ -f "/opt/homebrew/Caskroom/miniconda/base/etc/profile.d/conda.sh" ]; then
+            . "/opt/homebrew/Caskroom/miniconda/base/etc/profile.d/conda.sh"
+        else
+            export PATH="/opt/homebrew/Caskroom/miniconda/base/bin:$PATH"
+        fi
+    fi
+fi
+
+# Initialize Conda for Linux
+if [ "$os" = "Linux" ]; then
+    __conda_setup="$('~/miniconda3/bin/conda' 'shell.zsh' 'hook' 2> /dev/null)"
+    if [ $? -eq 0 ]; then
+        eval "$__conda_setup"
+    else
+        if [ -f "~/miniconda3/etc/profile.d/conda.sh" ]; then
+            . "~/miniconda3/etc/profile.d/conda.sh"
+        else
+            export PATH="~/miniconda3/bin:$PATH"
+        fi
+    fi
+fi
+
+unset __conda_setup
