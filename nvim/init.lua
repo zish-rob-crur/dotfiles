@@ -1,5 +1,6 @@
 require("options")
 require("plugins")
+require("keymaps")
 local cmd = vim.cmd
 
 local git_vim_path = vim.api.nvim_get_runtime_file("vim/git.vim", false)[1]

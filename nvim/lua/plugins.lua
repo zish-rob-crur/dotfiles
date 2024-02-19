@@ -107,7 +107,25 @@ require("lazy").setup({
             }
         end
     },
-
+    {
+        'akinsho/bufferline.nvim',
+        dependencies = { 'nvim-tree/nvim-web-devicons' },
+        config = function()
+            require('bufferline').setup {
+                options = {
+                    offsets = {
+                        {
+                            filetype = "NvimTree",
+                            text="Nvim Tree",
+                            separator= true,
+                            text_align = "left"
+                        }
+                      },
+                }
+            }
+        end
+    }
+    
 })
 
 -- Set colorscheme
