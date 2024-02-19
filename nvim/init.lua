@@ -12,3 +12,5 @@ local vimrc_path = "~/.vimrc"
 if vim.fn.filereadable(vimrc_path) == 1 then
     cmd("source " .. vimrc_path)
 end
+
+vim.cmd.colorscheme "catppuccin"

@@ -63,8 +63,14 @@ require("lazy").setup({
         end
     },
     {
-        "olimorris/onedarkpro.nvim",
-        priority = 1000, -- Ensure it loads first
+        "catppuccin/nvim",
+        name = "catppuccin",
+        priority = 1000,
+        lazy = false,
+        config = function()
+            require("catppuccin").setup()
+        end,
+        
     },
     {
         'nvim-lualine/lualine.nvim',
@@ -116,17 +122,14 @@ require("lazy").setup({
                     offsets = {
                         {
                             filetype = "NvimTree",
-                            text="Nvim Tree",
-                            separator= true,
+                            text = "Nvim Tree",
+                            separator = true,
                             text_align = "left"
                         }
-                      },
+                    },
                 }
             }
         end
     }
-    
-})
 
--- Set colorscheme
-vim.cmd("colorscheme onedark_dark")
+})
