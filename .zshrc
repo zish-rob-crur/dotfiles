@@ -184,9 +184,15 @@ export NVM_DIR="$HOME/.nvm"
 
 # >>> My Lias >>>
 alias python="python3"
-alias ls="exa"
-alias grep="rg"
-alias vim="nvim"
+if command -v exa &> /dev/null; then
+    alias ls="exa"
+fi
+if command -v rg &> /dev/null; then
+    alias grep="rg"
+fi
+if command -v nvim &> /dev/null; then
+    alias vim="nvim"
+fi
 # <<< Alias
 
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
