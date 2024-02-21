@@ -239,3 +239,6 @@ unset __conda_setup
 # deno
 export DENO_INSTALL="$HOME/.deno"
 export PATH="$DENO_INSTALL/bin:$PATH"
+
+#neovim 
+export PATH="$HOME/local/bin/nvim/bin:${PATH}"

@@ -26,6 +26,7 @@ ln -s GitHubRepos/dotfiles/wezterm/.wezterm.lua .wezterm.lua
 ```shell
 git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
 ln -s ~/GithubRepos/dotfiles/tmux/.tmux.conf .tmux.conf
+pip install libtmux
 tmux 
 <Ctrl-b> + I (install plugins)
 <Ctrl-b> + r (reload tmux)
