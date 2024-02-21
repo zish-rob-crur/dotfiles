@@ -16,5 +16,5 @@ Plug 'vim-multiple-cursors'
 set multiple-cursors
 
 
-" 在normal模式下，按一下 <leader><leader> 在按下t
-nmap <leader><leader>t :NERDTreeToggle<CR>
+" 在normal模式下，按一下 <leader>e 打开 nerdtree
+nmap <leader>e :NERDTreeToggle<CR>

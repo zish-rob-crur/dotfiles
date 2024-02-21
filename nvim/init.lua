@@ -13,4 +13,4 @@ if vim.fn.filereadable(vimrc_path) == 1 then
     cmd("source " .. vimrc_path)
 end
 
-vim.cmd.colorscheme "catppuccin"
+vim.cmd.colorscheme "onedark_dark"
