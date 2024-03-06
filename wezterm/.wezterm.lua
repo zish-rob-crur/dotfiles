@@ -6,8 +6,9 @@ local LightTheme = "Flexoki Light"
 local DarkTheme = "Flexoki Dark"
 
 function get_colordir()
-  local color_dir = os.getenv("HOME") .. "/GitHubRepos/dotfiles/wezterm/colors"
-  wezterm.log_error('Color Dir ' .. color_dir)
+  local path_sep = package.config:sub(1,1) 
+  local color_dir = os.getenv("HOME") or os.getenv("USERPROFILE") 
+  color_dir = color_dir .. path_sep .. "GitHubRepos" .. path_sep .. "dotfiles" .. path_sep .. "wezterm" .. path_sep .. "colors"
   return color_dir
 end
 
