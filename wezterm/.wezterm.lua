@@ -18,13 +18,7 @@ function get_theme()
   return DarkTheme
 end
 
-config.font = wezterm.font_with_fallback({
-  "Liga SFMono Nerd Font",
-  weight = "Regular",
-  stretch = "Normal",
-  style = "Normal"
-})
-
+config.font = wezterm.font('JetBrains Mono')
 config.color_scheme_dirs = { get_colordir() }
 config.color_scheme = get_theme()
 config.window_decorations = "RESIZE"
