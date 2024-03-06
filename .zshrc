@@ -152,22 +152,6 @@ ssh() {
 }
 
 autoload -U add-zsh-hook
-
-load-nvmrc() {
-  local nvmrc_path="$PWD/.nvmrc"
-
-  # 检查 .nvmrc 文件是否存在并且不为空
-  if [[ -f "$nvmrc_path" && -s "$nvmrc_path" ]]; then
-    local nvm_version=$(<"$nvmrc_path")
-
-    # 检查当前使用的 Node 版本是否与 .nvmrc 文件中指定的版本相同
-    if [[ "$(nvm current)" != "$nvm_version" ]]; then
-      nvm use
-    fi
-  fi
-}
-add-zsh-hook chpwd load-nvmrc
-load-nvmrc
 conda_auto_activate() {
     if [ -e ".condaenv" ]; then
         ENV_NAME=$(cat .condaenv)
@@ -242,3 +226,50 @@ export PATH="$DENO_INSTALL/bin:$PATH"
 
 #neovim 
 export PATH="$HOME/.local/nvim/bin:${PATH}"
+
+
+load-nvmrc() {
+  local nvmrc_path="$PWD/.nvmrc"
+
+  # 检查 .nvmrc 文件是否存在并且不为空
+  if [[ -f "$nvmrc_path" && -s "$nvmrc_path" ]]; then
+    local nvm_version=$(<"$nvmrc_path")
+
+    # 检查当前使用的 Node 版本是否与 .nvmrc 文件中指定的版本相同
+    if [[ "$(nvm current)" != "$nvm_version" ]]; then
+      nvm use
+    fi
+  fi
+}
+add-zsh-hook chpwd load-nvmrc
+load-nvmrc
+
+add_to_pythonpath() {
+    # 获取当前目录
+    local dir="$PWD"
+    # 检查PYTHONPATH是否已经包含当前目录
+    if [[ ":$PYTHONPATH:" != *":$dir:"* ]]; then
+        # 如果不包含，将其添加到PYTHONPATH
+        export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$dir"
+        echo "Added $dir to PYTHONPATH."
+    else
+        echo "$dir is already in PYTHONPATH."
+    fi
+}
+alias addpy='add_to_pythonpath'
+
+ssh() {
+  if [[ $1 == gpu-* ]]; then
+    echo "connecting to gpu using tssh"
+    tssh "${1#ssh-}" "${@:2}"
+  else
+    command ssh "$@"
+  fi
+}
+
+# go bin path
+export PATH="$PATH:$HOME/go/bin"
+
+# 设置一些 myuid 和 mygid
+export MY_UID=$(id -u)
+export MY_GID=$(id -g)

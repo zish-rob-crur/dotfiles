@@ -18,14 +18,20 @@ function get_theme()
   return DarkTheme
 end
 
-config.font = wezterm.font 'JetBrains Mono'
+config.font = wezterm.font_with_fallback({
+  "Liga SFMono Nerd Font",
+  weight = "Regular",
+  stretch = "Normal",
+  style = "Normal"
+})
+
 config.color_scheme_dirs = { get_colordir() }
 config.color_scheme = get_theme()
 config.window_decorations = "RESIZE"
 config.font_size = 16.0
 config.tab_max_width = 25
 config.show_new_tab_button_in_tab_bar = false
-config.hide_tab_bar_if_only_one_tab = false 
+config.hide_tab_bar_if_only_one_tab = false
 config.window_background_opacity = 0.97
 config.use_fancy_tab_bar = true
 config.tab_bar_at_bottom = false
@@ -55,6 +61,7 @@ config.keys = { {
     mods = 'CMD',
     action = wezterm.action.CloseCurrentPane { confirm = false },
   },
+
 }
 config.window_padding = {
   left = 5,
@@ -75,7 +82,7 @@ end
 wezterm.plugin.require("https://github.com/nekowinston/wezterm-bar").apply_to_config(config, {
   position = "top",
   max_width = 32,
-  dividers = "rounded", -- or "slant_left", "arrows", "rounded", false
+  dividers = false,
   indicator = {
     leader = {
       enabled = true,
@@ -92,16 +99,16 @@ wezterm.plugin.require("https://github.com/nekowinston/wezterm-bar").apply_to_co
     },
   },
   tabs = {
-    numerals = "arabic",        -- or "roman"
-    pane_count = "superscript", -- or "subscript", false
+    numerals = "arabic",
+    pane_count = false,
     brackets = {
-      active = { "", ":" },
-      inactive = { "", ":" },
+      active = { "(", ")" },
+      inactive = { "[", "]" },
     },
   },
-  clock = {           -- note that this overrides the whole set_right_status
-    enabled = true,
-    format = "%Y-%m-%d %H:%M:%S", -- use https://wezfurlong.org/wezterm/config/lua/wezterm.time/Time/format.html
+  clock = {
+    enabled = false,
+    format = "%Y-%m-%d %H:%M:%S",
   },
 })
 
