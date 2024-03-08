@@ -102,7 +102,7 @@ wezterm.plugin.require("https://github.com/nekowinston/wezterm-bar").apply_to_co
     },
   },
   clock = {
-    enabled = false,
+    enabled = true,
     format = "%Y-%m-%d %H:%M:%S",
   },
 })
