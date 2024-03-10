@@ -79,7 +79,9 @@ ZSH_THEME="robbyrussell"
 # Add wisely, as too many plugins slow down shell startup.
 plugins=(git)
 
-source $ZSH/oh-my-zsh.sh
+if [ -f "$ZSH/oh-my-zsh.sh" ]; then
+    source $ZSH/oh-my-zsh.sh
+fi
 
 # User configuration
 
@@ -137,19 +139,6 @@ zinit light jeffreytse/zsh-vi-mode
 zinit light skywind3000/z.lua
 # p10k
 zinit ice depth=1; zinit light romkatv/powerlevel10k
-
-
-# 自动重命名tmux窗口
-ssh() {
-    if [ "$(ps -p $(ps -p $$ -o ppid=) -o comm=)" = "tmux" ]; then
-        #tmux rename-window "$(echo $* | cut -d . -f 1)"
-        tmux rename-window "$(echo $* | cut -d @ -f 2)"
-        command ssh "$@"
-        tmux set-window-option automatic-rename "on" 1>/dev/null
-    else
-        command ssh "$@"
-    fi
-}
 
 autoload -U add-zsh-hook
 conda_auto_activate() {
@@ -273,3 +262,6 @@ export PATH="$PATH:$HOME/go/bin"
 # 设置一些 myuid 和 mygid
 export MY_UID=$(id -u)
 export MY_GID=$(id -g)
+export PATH="/opt/homebrew/opt/curl/bin:$PATH"
+# 关闭 curl 的ipv6
+alias curl="curl -4"
