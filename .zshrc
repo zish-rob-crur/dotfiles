@@ -108,7 +108,7 @@ fi
 # Example aliases
 # alias zshconfig="mate ~/.zshrc"
 # alias ohmyzsh="mate ~/.oh-my-zsh"
-
+eval "$(/opt/homebrew/bin/brew shellenv)"
 ### Added by Zinit's installer
 if [[ ! -f $HOME/.local/share/zinit/zinit.git/zinit.zsh ]]; then
     print -P "%F{33} %F{220}Installing %F{33}ZDHARMA-CONTINUUM%F{220} Initiative Plugin Manager (%F{33}zdharma-continuum/zinit%F{220})…%f"
@@ -159,6 +159,9 @@ export NVM_DIR="$HOME/.nvm"
 alias python="python3"
 if command -v exa &> /dev/null; then
     alias ls="exa"
+fi
+if command -v eza &> /dev/null; then
+    alias ls="eza"
 fi
 if command -v rg &> /dev/null; then
     alias grep="rg"
@@ -263,5 +266,9 @@ export PATH="$PATH:$HOME/go/bin"
 export MY_UID=$(id -u)
 export MY_GID=$(id -g)
 export PATH="/opt/homebrew/opt/curl/bin:$PATH"
+
 # 关闭 curl 的ipv6
 alias curl="curl -4"
+
+# .local bin
+export PATH="$HOME/.local/bin:$PATH"
