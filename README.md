@@ -12,9 +12,12 @@ ln -s ~/GithubRepos/dotfiles/.p10k.zsh .p10k.zsh
 ```shell
 ln -s ~/GithubRepos/dotfiles/.vimrc .vimrc
 ```
+
 ### neoVim
 ```shell
-ln -s ~/GithubRepos/dotfiles/NvChad ~/.config/nvim
+mv ~/.config/nvim ~/.config/nvim.bak
+mv ~/.local/share/nvim ~/.local/share/nvim.bak
+ln -s ~/GithubRepos/dotfiles/nvim ~/.config/nvim
 ```
 
 ## Wezterm
