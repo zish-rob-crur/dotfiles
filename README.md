@@ -14,7 +14,7 @@ ln -s ~/GithubRepos/dotfiles/.vimrc .vimrc
 ```
 ### neoVim
 ```shell
-ln -s ~/GithubRepos/dotfiles/nvim ~/.config/nvim
+ln -s ~/GithubRepos/dotfiles/NvChad ~/.config/nvim
 ```
 
 ## Wezterm
