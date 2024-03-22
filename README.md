@@ -15,6 +15,7 @@ ln -s ~/GithubRepos/dotfiles/.vimrc .vimrc
 
 ### neoVim
 ```shell
+git submodule update --init --recursive
 mv ~/.config/nvim ~/.config/nvim.bak
 mv ~/.local/share/nvim ~/.local/share/nvim.bak
 ln -s ~/GithubRepos/dotfiles/nvim ~/.config/nvim
