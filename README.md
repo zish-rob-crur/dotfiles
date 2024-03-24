@@ -1,5 +1,4 @@
 # dotfiles
-
 ## oh my zsh
 
 ```shell
@@ -34,4 +33,9 @@ pip install libtmux
 tmux 
 <Ctrl-b> + I (install plugins)
 <Ctrl-b> + r (reload tmux)
+```
+
+## Init My Dev Linux
+```shell
+curl https://raw.githubusercontent.com/zish-rob-crur/dotfiles/main/linux/init_dev.sh | bash
 ```
