@@ -140,16 +140,6 @@ zinit light skywind3000/z.lua
 # p10k
 zinit ice depth=1; zinit light romkatv/powerlevel10k
 
-autoload -U add-zsh-hook
-conda_auto_activate() {
-    if [ -e ".condaenv" ]; then
-        ENV_NAME=$(cat .condaenv)
-        conda activate "$ENV_NAME"
-    fi
-}
-add-zsh-hook chpwd conda_auto_activate 
-conda_auto_activate
-
 # >>> NVM >>>
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh" # This loads nvm
@@ -235,6 +225,16 @@ load-nvmrc() {
 }
 add-zsh-hook chpwd load-nvmrc
 load-nvmrc
+
+autoload -U add-zsh-hook
+conda_auto_activate() {
+    if [ -e ".condaenv" ]; then
+        ENV_NAME=$(cat .condaenv)
+        conda activate "$ENV_NAME"
+    fi
+}
+add-zsh-hook chpwd conda_auto_activate 
+conda_auto_activate
 
 add_to_pythonpath() {
     # 获取当前目录
