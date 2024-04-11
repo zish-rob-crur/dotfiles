@@ -272,3 +272,8 @@ alias curl="curl -4"
 
 # .local bin
 export PATH="$HOME/.local/bin:$PATH"
+
+# ftf 检查 ~/.ftf.zsh 是否存在
+if [ -f ~/.ftf.zsh ]; then
+    source ~/.ftf.zsh
+fi
