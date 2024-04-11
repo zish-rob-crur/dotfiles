@@ -273,7 +273,7 @@ alias curl="curl -4"
 # .local bin
 export PATH="$HOME/.local/bin:$PATH"
 
-# ftf 检查 $HOME/.ftf.zsh 文件是否存在，如果存在则加载
-if [ -f "$HOME/.ftf.zsh" ]; then
-    source "$HOME/.ftf.zsh"
+# ftf 检查 $HOME/.fzf.zsh 文件是否存在，如果存在则加载
+if [ -f "$HOME/.fzf.zsh" ]; then
+    source "$HOME/.fzf.zsh"
 fi
