@@ -108,7 +108,6 @@ fi
 # Example aliases
 # alias zshconfig="mate ~/.zshrc"
 # alias ohmyzsh="mate ~/.oh-my-zsh"
-eval "$(/opt/homebrew/bin/brew shellenv)"
 ### Added by Zinit's installer
 if [[ ! -f $HOME/.local/share/zinit/zinit.git/zinit.zsh ]]; then
     print -P "%F{33} %F{220}Installing %F{33}ZDHARMA-CONTINUUM%F{220} Initiative Plugin Manager (%F{33}zdharma-continuum/zinit%F{220})…%f"
@@ -184,6 +183,7 @@ if [ "$os" = "Mac" ]; then
             export PATH="/opt/homebrew/Caskroom/miniconda/base/bin:$PATH"
         fi
     fi
+    eval "$(/opt/homebrew/bin/brew shellenv)"
 fi
 
 # Initialize Conda for Linux
