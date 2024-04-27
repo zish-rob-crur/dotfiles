@@ -259,6 +259,8 @@ ssh() {
   fi
 }
 
+compctl -K _ssh ssh
+
 # go bin path
 export PATH="$PATH:$HOME/go/bin"
 

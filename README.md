@@ -37,5 +37,7 @@ tmux
 
 ## Init My Dev Linux
 ```shell
-curl https://raw.githubusercontent.com/zish-rob-crur/dotfiles/main/linux/init_dev.sh | bash
+curl -sS https://raw.githubusercontent.com/zish-rob-crur/dotfiles/main/linux/init_dev.sh  -o init_dev.sh
+chmod +x init_dev.sh
+./init_dev.sh
 ```
