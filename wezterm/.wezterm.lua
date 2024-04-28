@@ -47,6 +47,8 @@ config.window_decorations = "RESIZE"
 config.font_size = 16.0
 config.show_new_tab_button_in_tab_bar = false
 config.hide_tab_bar_if_only_one_tab = true
+config.hide_mouse_cursor_when_typing = true
+
 config.window_background_opacity = 0.97
 
 config.use_fancy_tab_bar = false
@@ -88,4 +90,40 @@ config.window_padding = {
   bottom = 7
 }
 
+
+-- This function returns the suggested title for a tab.
+-- It prefers the title that was set via `tab:set_title()`
+-- or `wezterm cli set-tab-title`, but falls back to the
+-- title of the active pane in that tab.
+function tab_title(tab_info)
+  local title = tab_info.tab_title
+  local tab_index = tab_info.tab_index + 1
+  if not title or title == "" then
+    title = tab_info.active_pane.title
+  end
+  -- if the tab title is explicitly set, take that
+  if title and #title > 0 then
+    return  string.format("[%d] %s ", tab_index, title)
+  end
+  -- Otherwise, use the title from the active pane
+  -- in that tab
+  return tab_info.active_pane.title
+end
+
+wezterm.on(
+  'format-tab-title',
+  function(tab, tabs, panes, config, hover, max_width)
+    local title = tab_title(tab)
+
+    if tab.is_active then
+      return {
+        { Text = "<" .. title .. ">" }
+      }
+    else
+      return {
+        { Text = " " .. title .. " " }
+      }
+    end
+  end
+)
 return config
