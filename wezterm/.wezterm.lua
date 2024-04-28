@@ -6,6 +6,14 @@ local DarkTheme = "Tokyo Night (Gogh)"
 
 local LightTheme = "Catppuccin Latte"
 
+function hash_to_color(input)
+  local hash = 0
+  for i = 1, #input do
+    hash = (hash * 31 + input:byte(i)) % 0xFFFFFF
+  end
+  return string.format("#%06x", hash)
+end
+
 function get_colordir()
   local path_sep = package.config:sub(1, 1)
   local color_dir = os.getenv("HOME") or os.getenv("USERPROFILE")
@@ -103,7 +111,7 @@ function tab_title(tab_info)
   end
   -- if the tab title is explicitly set, take that
   if title and #title > 0 then
-    return  string.format("[%d] %s ", tab_index, title)
+    return string.format("[%d] %s ", tab_index, title)
   end
   -- Otherwise, use the title from the active pane
   -- in that tab
@@ -114,16 +122,20 @@ wezterm.on(
   'format-tab-title',
   function(tab, tabs, panes, config, hover, max_width)
     local title = tab_title(tab)
-
+    local prefix = ""
+    local suffix = ""
+    local foreground_color = hash_to_color(title)
     if tab.is_active then
-      return {
-        { Text = "<" .. title .. ">" }
-      }
+      prefix = "▶️"
+      suffix = "◀️"
     else
-      return {
-        { Text = " " .. title .. " " }
-      }
+      prefix = " "
+      suffix = " "
     end
+    return {
+      { Foreground = { Color = foreground_color } },
+      { Text = prefix .. title .. suffix }
+    }
   end
 )
 return config
