@@ -53,18 +53,19 @@ config.color_scheme_dirs = { get_colordir() }
 config.color_scheme = scheme_for_appearance(get_appearance())
 config.window_decorations = "RESIZE"
 config.font_size = 16.0
-config.show_new_tab_button_in_tab_bar = false
-config.hide_tab_bar_if_only_one_tab = true
+config.show_new_tab_button_in_tab_bar = true
+config.hide_tab_bar_if_only_one_tab = false
 config.hide_mouse_cursor_when_typing = true
-
 config.window_background_opacity = 0.97
-
-config.use_fancy_tab_bar = false
-config.tab_max_width = 50
-
+config.tab_max_width = 40
 config.tab_bar_at_bottom = false
 config.macos_window_background_blur = 50
 config.max_fps = 120
+config.use_fancy_tab_bar = true
+config.window_frame = {
+  font = wezterm.font { family = 'Roboto', weight = 'Bold' },
+  font_size = 14.0,
+}
 config.keys = { {
   key = "LeftArrow",
   mods = "ALT",
@@ -91,13 +92,6 @@ config.keys = { {
   },
 
 }
-config.window_padding = {
-  left = 5,
-  right = 10,
-  top = 12,
-  bottom = 7
-}
-
 
 -- This function returns the suggested title for a tab.
 -- It prefers the title that was set via `tab:set_title()`
@@ -138,4 +132,15 @@ wezterm.on(
     }
   end
 )
+config.window_decorations = "INTEGRATED_BUTTONS|RESIZE"
+config.initial_cols = 120
+config.initial_rows = 40
+config.window_close_confirmation = 'AlwaysPrompt'
+window_frame = {
+  active_titlebar_bg = '#0F2536',
+  inactive_titlebar_bg = '#0F2536',
+  -- font = fonts.font,
+  -- font_size = fonts.font_size,
+}
+config.inactive_pane_hsb = { saturation = 1.0, brightness = 1.0 }
 return config

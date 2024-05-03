@@ -109,6 +109,18 @@ fi
 # alias zshconfig="mate ~/.zshrc"
 # alias ohmyzsh="mate ~/.oh-my-zsh"
 ### Added by Zinit's installer
+# Determine OS type
+
+case "$(uname -s)" in
+    Linux*)     os=Linux;;
+    Darwin*)    os=Mac;;
+    *)          os=Unknown;;
+esac
+
+if [ "$os" = "Mac" ]; then    
+    eval "$(/opt/homebrew/bin/brew shellenv)"
+fi
+
 if [[ ! -f $HOME/.local/share/zinit/zinit.git/zinit.zsh ]]; then
     print -P "%F{33} %F{220}Installing %F{33}ZDHARMA-CONTINUUM%F{220} Initiative Plugin Manager (%F{33}zdharma-continuum/zinit%F{220})…%f"
     command mkdir -p "$HOME/.local/share/zinit" && command chmod g-rwX "$HOME/.local/share/zinit"
@@ -164,12 +176,7 @@ fi
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
 
 # Conda initialize block
-# Determine OS type
-case "$(uname -s)" in
-    Linux*)     os=Linux;;
-    Darwin*)    os=Mac;;
-    *)          os=Unknown;;
-esac
+
 
 # Initialize Conda for Mac
 if [ "$os" = "Mac" ]; then
@@ -183,7 +190,6 @@ if [ "$os" = "Mac" ]; then
             export PATH="/opt/homebrew/Caskroom/miniconda/base/bin:$PATH"
         fi
     fi
-    eval "$(/opt/homebrew/bin/brew shellenv)"
 fi
 
 # Initialize Conda for Linux
