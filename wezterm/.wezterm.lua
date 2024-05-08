@@ -11,7 +11,26 @@ function hash_to_color(input)
   for i = 1, #input do
     hash = (hash * 31 + input:byte(i)) % 0xFFFFFF
   end
-  return string.format("#%06x", hash)
+  local r = (hash & 0xFF0000) >> 16
+  local g = (hash & 0x00FF00) >> 8
+  local b = hash & 0x0000FF
+
+  -- Calculate luminance
+  local luminance = 0.299 * r + 0.587 * g + 0.114 * b  -- using luminance formula
+
+  -- Normalize if too dark or too light
+  local adjustment_factor = 1
+  if luminance < 60 then
+    adjustment_factor = 130 / luminance
+  elseif luminance > 200 then
+    adjustment_factor = 180 / luminance
+  end
+
+  r = math.min(255, r * adjustment_factor)
+  g = math.min(255, g * adjustment_factor)
+  b = math.min(255, b * adjustment_factor)
+
+  return string.format("#%02x%02x%02x", r, g, b)
 end
 
 function get_colordir()
