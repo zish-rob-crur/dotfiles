@@ -285,3 +285,6 @@ export PATH="$HOME/.local/bin:$PATH"
 if [ -f "$HOME/.fzf.zsh" ]; then
     source "$HOME/.fzf.zsh"
 fi
+
+# 将 ~/.cargo/bin 加入到 PATH
+export PATH="$HOME/.cargo/bin:$PATH"
