@@ -156,6 +156,9 @@ export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh" # This loads nvm
 # <<< NVM
 
+# 将 ~/.cargo/bin 加入到 PATH
+export PATH="$HOME/.cargo/bin:$PATH"
+
 # >>> My Lias >>>
 alias python="python3"
 if command -v exa &> /dev/null; then
@@ -286,5 +289,3 @@ if [ -f "$HOME/.fzf.zsh" ]; then
     source "$HOME/.fzf.zsh"
 fi
 
-# 将 ~/.cargo/bin 加入到 PATH
-export PATH="$HOME/.cargo/bin:$PATH"
