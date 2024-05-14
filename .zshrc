@@ -193,6 +193,12 @@ if [ "$os" = "Mac" ]; then
             export PATH="/opt/homebrew/Caskroom/miniconda/base/bin:$PATH"
         fi
     fi
+    export GOPATH="$HOME/go"
+    export GOROOT="/opt/homebrew/opt/go"
+    export PATH="$GOPATH/bin:$PATH"
+    if [ -d "$HOME/go/bin" ] ; then
+        export PATH="$HOME/go/bin:$PATH"
+    fi
 fi
 
 # Initialize Conda for Linux
@@ -288,4 +294,3 @@ export PATH="$HOME/.local/bin:$PATH"
 if [ -f "$HOME/.fzf.zsh" ]; then
     source "$HOME/.fzf.zsh"
 fi
-
