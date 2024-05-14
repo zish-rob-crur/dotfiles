@@ -194,8 +194,8 @@ if [ "$os" = "Mac" ]; then
         fi
     fi
     export GOPATH="$HOME/go"
-    export GOROOT="/opt/homebrew/opt/go"
-    export PATH="$GOPATH/bin:$PATH"
+    export GOROOT="/opt/homebrew/opt/go/libexec"
+    export PATH=$PATH:$GOROOT/bin:$GOPATH/bin
     if [ -d "$HOME/go/bin" ] ; then
         export PATH="$HOME/go/bin:$PATH"
     fi
