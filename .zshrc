@@ -151,6 +151,12 @@ zinit light skywind3000/z.lua
 # p10k
 zinit ice depth=1; zinit light romkatv/powerlevel10k
 
+# 解决 zsh-vi-mode 中 history 上下键冲突
+zvm_bindkey vicmd '^[[A' history-search-backward
+zvm_bindkey viins '^[[A' history-search-backward
+zvm_bindkey vicmd '^[[B' history-search-forward
+zvm_bindkey viins '^[[B' history-search-forward
+
 # >>> NVM >>>
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh" # This loads nvm
