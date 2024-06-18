@@ -300,3 +300,6 @@ export PATH="$HOME/.local/bin:$PATH"
 if [ -f "$HOME/.fzf.zsh" ]; then
     source "$HOME/.fzf.zsh"
 fi
+
+# 将 git 的 branch 设置为 git branch --sort=-committerdate
+alias "gbranch"="git branch --sort=-committerdate"

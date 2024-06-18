@@ -125,6 +125,7 @@ config.window_frame = {
   font = wezterm.font { family = 'Roboto', weight = 'Bold' },
   font_size = 14.0,
 }
+config.macos_window_background_blur = 10
 config.keys = { {
   key = "LeftArrow",
   mods = "ALT",

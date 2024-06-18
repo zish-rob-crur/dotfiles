@@ -1,0 +1,2 @@
+print("vsocde nvim config")
+
