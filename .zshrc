@@ -303,3 +303,8 @@ fi
 
 # 将 git 的 branch 设置为 git branch --sort=-committerdate
 alias "gbranch"="git branch --sort=-committerdate"
+
+# 检查本地是否有 .local.zsh.rc 文件，如果有则加载
+if [ -f "$HOME/.local.zsh.rc" ]; then
+    source "$HOME/.local.zsh.rc"
+fi
