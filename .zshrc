@@ -272,12 +272,18 @@ add_to_pythonpath() {
 alias addpy='add_to_pythonpath'
 
 ssh() {
+    # 如果是在 tmux 里面我们将机器的名字作为当前window的名字
+if [[ -n $TMUX ]]; then
+    echo "in tmux"
+    tmux rename-window "$(basename "$1")"
+  fi
   if [[ $1 == gpu-* ]]; then
     echo "connecting to gpu using tssh"
     tssh "${1#ssh-}" "${@:2}"
   else
     command ssh "$@"
   fi
+
 }
 
 compctl -K _ssh ssh

@@ -5,7 +5,6 @@ local config = wezterm.config_builder()
 local DarkTheme = "Tokyo Night (Gogh)"
 
 local LightTheme = "Catppuccin Latte"
-local TITLEBAR_COLOR = '#333333'
 
 function hash_to_color(input)
   local hash = 0
@@ -17,7 +16,7 @@ function hash_to_color(input)
   local b = hash & 0x0000FF
 
   -- Calculate luminance
-  local luminance = 0.299 * r + 0.587 * g + 0.114 * b  -- using luminance formula
+  local luminance = 0.299 * r + 0.587 * g + 0.114 * b -- using luminance formula
 
   -- Normalize if too dark or too light
   local adjustment_factor = 1
@@ -74,7 +73,7 @@ wezterm.on('update-status', function(window, pane)
   local date = wezterm.strftime ' %a %b %-d %H:%M'
   table.insert(cells, date)
   -- Add an entry for each battery (typically 0 or 1)
-  local batt_icons = {'', '', '', '', ''}
+  local batt_icons = { '', '', '', '', '' }
   for _, b in ipairs(wezterm.battery_info()) do
     local curr_batt_icon = batt_icons[math.ceil(b.state_of_charge * #batt_icons)]
     table.insert(cells, string.format('%s %.0f%%', curr_batt_icon, b.state_of_charge * 100))
@@ -113,9 +112,9 @@ config.color_scheme = scheme_for_appearance(get_appearance())
 config.window_decorations = "RESIZE"
 config.font_size = 16.0
 config.show_new_tab_button_in_tab_bar = true
-config.hide_tab_bar_if_only_one_tab = false
+config.hide_tab_bar_if_only_one_tab = true
 config.hide_mouse_cursor_when_typing = true
-config.window_background_opacity = 0.97
+-- config.window_background_opacity = 0.97
 config.tab_max_width = 40
 config.tab_bar_at_bottom = false
 config.macos_window_background_blur = 50
@@ -192,7 +191,7 @@ wezterm.on(
     }
   end
 )
-config.window_decorations = "INTEGRATED_BUTTONS|RESIZE"
+config.window_decorations = "RESIZE"
 config.initial_cols = 120
 config.initial_rows = 40
 config.window_close_confirmation = 'AlwaysPrompt'

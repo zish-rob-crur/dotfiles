@@ -4,6 +4,9 @@
     ],
     "Lua.runtime.version": "LuaJIT",
     "Lua.workspace.library": [
-        "/opt/homebrew/Cellar/neovim/0.10.0/share/nvim/runtime/"
+        // nvim
+        "/opt/homebrew/Cellar/neovim/0.10.0/share/nvim/runtime/",
+        // wezterm
+        
     ]
 }

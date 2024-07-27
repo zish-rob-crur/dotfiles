@@ -18,4 +18,8 @@ vim.wo.relativenumber = true
 require("lazy-init")
 if vim.g.vscode then
     require("vscode-init")
+
 end
+
+-- 使用系统剪切板
+vim.opt.clipboard = "unnamedplus"
