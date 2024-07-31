@@ -66,45 +66,6 @@ wezterm.on("update-right-status", function(window, pane)
   window:set_config_overrides(overrides)
 end
 )
-wezterm.on('update-status', function(window, pane)
-  local cells = {}
-
-  -- Format date/time in this style: "Wed Mar 3 08:14"
-  local date = wezterm.strftime ' %a %b %-d %H:%M'
-  table.insert(cells, date)
-  -- Add an entry for each battery (typically 0 or 1)
-  local batt_icons = { '', '', '', '', '' }
-  for _, b in ipairs(wezterm.battery_info()) do
-    local curr_batt_icon = batt_icons[math.ceil(b.state_of_charge * #batt_icons)]
-    table.insert(cells, string.format('%s %.0f%%', curr_batt_icon, b.state_of_charge * 100))
-  end
-
-  -- Color palette for each cell
-  local text_fg = '#c0c0c0'
-  local colors = {
-    TITLEBAR_COLOR,
-    '#3c1361',
-    '#52307c',
-    '#663a82',
-    '#7c5295',
-    '#b491c8',
-  }
-
-  local elements = {}
-  while #cells > 0 and #colors > 1 do
-    local text = table.remove(cells, 1)
-    local prev_color = table.remove(colors, 1)
-    local curr_color = colors[1]
-
-    table.insert(elements, { Background = { Color = prev_color } })
-    table.insert(elements, { Foreground = { Color = curr_color } })
-    table.insert(elements, { Text = '' })
-    table.insert(elements, { Background = { Color = curr_color } })
-    table.insert(elements, { Foreground = { Color = text_fg } })
-    table.insert(elements, { Text = ' ' .. text .. ' ' })
-  end
-  window:set_right_status(wezterm.format(elements))
-end)
 
 config.font = wezterm.font('JetBrains Mono')
 config.color_scheme_dirs = { get_colordir() }
@@ -119,7 +80,10 @@ config.tab_max_width = 40
 config.tab_bar_at_bottom = false
 config.macos_window_background_blur = 50
 config.max_fps = 120
-config.use_fancy_tab_bar = true
+config.use_fancy_tab_bar = false
+config.tab_bar_at_bottom = false
+config.show_tabs_in_tab_bar = true;
+config.show_new_tab_button_in_tab_bar = false
 config.window_frame = {
   font = wezterm.font { family = 'Roboto', weight = 'Bold' },
   font_size = 14.0,
