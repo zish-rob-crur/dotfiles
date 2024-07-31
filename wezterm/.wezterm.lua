@@ -80,7 +80,7 @@ config.tab_max_width = 40
 config.tab_bar_at_bottom = false
 config.macos_window_background_blur = 50
 config.max_fps = 120
-config.use_fancy_tab_bar = false
+config.use_fancy_tab_bar = true
 config.tab_bar_at_bottom = false
 config.show_tabs_in_tab_bar = true;
 config.show_new_tab_button_in_tab_bar = false
@@ -142,13 +142,6 @@ wezterm.on(
     local prefix = ""
     local suffix = ""
     local foreground_color = hash_to_color(title)
-    if tab.is_active then
-      prefix = "▶️"
-      suffix = "◀️"
-    else
-      prefix = " "
-      suffix = " "
-    end
     return {
       { Foreground = { Color = foreground_color } },
       { Text = prefix .. title .. suffix }
