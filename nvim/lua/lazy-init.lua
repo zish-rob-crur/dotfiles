@@ -1,18 +1,35 @@
 plugins = {
     {
-        "folke/tokyonight.nvim",
+        'nvim-tree/nvim-tree.lua',
+        version = "*",
         lazy = false,
-        priority = 1000,
+        dependencies = {
+            "nvim-tree/nvim-web-devicons",
+        },
         config = function()
-            -- load the colorscheme here
-            vim.cmd([[colorscheme tokyonight]])
+            require("nvim-tree").setup {}
+            require("key-maps.nvvim-tree")
         end,
-        cond = {
-            function()
-                return not vim.g.vscode
-            end
-        }
     },
+    {
+        'romgrk/barbar.nvim',
+        dependencies = {
+            'lewis6991/gitsigns.nvim',     -- OPTIONAL: for git status
+            'nvim-tree/nvim-web-devicons', -- OPTIONAL: for file icons
+        },
+        init = function()
+            vim.g.barbar_auto_setup = false
+        end,
+        opts = {
+            -- lazy.nvim will automatically call setup for you. put your options here, anything missing will use the default:
+            -- animation = true,
+            -- insert_at_start = true,
+            -- …etc.
+        },
+        version = '^1.0.0', -- optional: only update when a new 1.x version is released
+        cond = not vim.g.vscode,
+    },
+    { "catppuccin/nvim", name = "catppuccin", priority = 1000, cond = not vim.g.vscode },
     {
         "unblevable/quick-scope",
         config = function()
@@ -41,7 +58,21 @@ plugins = {
             { "R",     mode = { "o", "x" },      function() require("flash").treesitter_search() end, desc = "Treesitter Search" },
             { "<c-s>", mode = { "c" },           function() require("flash").toggle() end,            desc = "Toggle Flash Search" },
         },
-    }
+    },
+    {
+        "williamboman/mason.nvim",
+        "williamboman/mason-lspconfig.nvim",
+        "neovim/nvim-lspconfig",
+    },
+    {
+        'hrsh7th/nvim-cmp',
+        'hrsh7th/cmp-nvim-lsp',
+        'hrsh7th/cmp-buffer',
+        'hrsh7th/cmp-path',
+        'hrsh7th/cmp-vsnip',
+        'hrsh7th/vim-vsnip',
+    },
+
 
 }
 
