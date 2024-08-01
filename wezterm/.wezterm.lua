@@ -41,21 +41,6 @@ function get_colordir()
   return color_dir
 end
 
-function get_appearance()
-  if wezterm.gui then
-    return wezterm.gui.get_appearance()
-  end
-  return 'Dark'
-end
-
-function scheme_for_appearance(appearance)
-  if appearance:find 'Dark' then
-    return DarkTheme
-  else
-    return LightTheme
-  end
-end
-
 wezterm.on("update-right-status", function(window, pane)
   local overrides = {}
   if wezterm.gui.get_appearance() == "Light" then
@@ -69,7 +54,7 @@ end
 
 config.font = wezterm.font('JetBrains Mono')
 config.color_scheme_dirs = { get_colordir() }
-config.color_scheme = scheme_for_appearance(get_appearance())
+config.color_scheme = DarkTheme
 config.window_decorations = "RESIZE"
 config.font_size = 16.0
 config.show_new_tab_button_in_tab_bar = true
