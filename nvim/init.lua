@@ -32,6 +32,7 @@ else
     require("cmp-config")
     require('barbar-config')
     require("catppuccin-config")
+    require("key-maps.telescope")
 end
 
 -- 使用系统剪切板
