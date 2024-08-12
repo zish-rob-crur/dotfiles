@@ -9,7 +9,6 @@ plugins = {
         config = function()
             require("nvim-tree").setup {
             }
-            require("key-maps.jvvim-tree")
         end,
     },
     {
@@ -146,6 +145,11 @@ plugins = {
             end,
         },
     },
+    {
+        'MeanderingProgrammer/render-markdown.nvim',
+        opts = {},
+        dependencies = { 'nvim-treesitter/nvim-treesitter', 'nvim-tree/nvim-web-devicons' },
+    }
 }
 
 require("lazy").setup(
