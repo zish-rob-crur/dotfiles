@@ -9,7 +9,7 @@ plugins = {
         config = function()
             require("nvim-tree").setup {
             }
-            require("key-maps.nvvim-tree")
+            require("key-maps.jvvim-tree")
         end,
     },
     {
@@ -130,7 +130,22 @@ plugins = {
                 },
             }
         end
-    }
+    },
+    {
+        "zbirenbaum/copilot-cmp",
+        event = "InsertEnter",
+        config = function() require("copilot_cmp").setup() end,
+        dependencies = {
+            "zbirenbaum/copilot.lua",
+            cmd = "Copilot",
+            config = function()
+                require("copilot").setup({
+                    suggestion = { enabled = false },
+                    panel = { enabled = false },
+                })
+            end,
+        },
+    },
 }
 
 require("lazy").setup(
