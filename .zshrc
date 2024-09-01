@@ -314,3 +314,10 @@ alias "gbranch"="git branch --sort=-committerdate"
 if [ -f "$HOME/.local.zsh.rc" ]; then
     source "$HOME/.local.zsh.rc"
 fi
+
+# 如果安装了 fzf，我们激活它，fzf 是用来做模糊搜索的
+if command -v fzf >/dev/null 2>&1; then
+    source <(fzf --zsh)
+    # 你可以在这里添加更多 fzf 的配置 开启 preview 功能
+    export FZF_DEFAULT_OPTS='--height 90% --layout=reverse --border --preview="bat --style=numbers --color=always {}" --preview-window=right:60%:wrap'
+fi
