@@ -2,7 +2,7 @@
 # tmux workspace search
 # 2. 创建一个 fzf 窗口 用于搜索文件夹 忽略 .git node_modules .venv venv 
 
-selected_file=$(fd -t d -E .git -E node_modules -E .venv -E venv -d 5 . ~/ \
+selected_file=$(fd -t d -E .git -E node_modules -E .venv -E venv -E 'Library/' -d 5 . ~/ \
 | fzf  --reverse --border --ansi --prompt="Search workspace: " \
 --preview="tree -C {} | head -200" --tmux 80%,50% 
 )
@@ -16,7 +16,8 @@ new tmux pane\n\
 vscode\n\
 new tmux window & vscode\n\
 zed\n\
-vim"\
+vim\n\
+new tmux window & vim"\
 | fzf --reverse --border --ansi --prompt="Open with: " --tmux 50%,50%  --preview="echo $selected_file"
 )
 
@@ -41,6 +42,10 @@ case $selected_option in
         zed $selected_file
         ;;
     "vim")
-        vim $selected_file
+        tmux send-keys -t 0 "nvim $selected_file" Enter
+        ;;
+    "new tmux window & vim")
+        tmux new-window -c $selected_file
+        tmux send-keys -t 0 "nvim $selected_file" Enter
         ;;
 esac

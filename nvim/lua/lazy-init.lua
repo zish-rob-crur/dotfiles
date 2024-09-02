@@ -82,6 +82,7 @@ plugins = {
     },
     {
         "nvim-treesitter/nvim-treesitter",
+        cond = not vim.g.vscode,
         config = function()
             require("nvim-treesitter.configs").setup {
                 -- A list of parser names, or "all" (the listed parsers MUST always be installed)
@@ -144,6 +145,7 @@ plugins = {
                 })
             end,
         },
+        cond = not vim.g.vscode,
     },
     {
         'MeanderingProgrammer/render-markdown.nvim',

@@ -13,3 +13,5 @@ local expr = { expr = true }
 vim.api.nvim_set_keymap('n', '<space>e', lua_fn(function()
     vscode.action('workbench.view.explorer')
 end), noremap)
+
+print("vscode nvim config end")
