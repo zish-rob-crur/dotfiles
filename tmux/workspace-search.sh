@@ -3,7 +3,7 @@
 # 2. 创建一个 fzf 窗口 用于搜索文件夹 忽略 .git node_modules .venv venv 
 
 # Function to sanitize and handle paths with special characters like spaces
-selected_file=$(fd -t d -E .git -E node_modules -E .venv -E venv -E 'Library/' -d 5 . ~/ \
+selected_file=$(fd -t d -E .git -E node_modules -E .venv -E venv -E 'Library/' -E 'Applications/' -d 5 . ~/ \
 | fzf  --reverse --border --ansi --prompt="Search workspace: " \
 --preview="tree -C {} | head -200" --tmux 80%,50% 
 )
