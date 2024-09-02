@@ -23,6 +23,7 @@ actions=(
     "vim"
     "new tmux window & vim"
     "finder"
+    "copy path"
 )
 selected_option=$(printf "%s\n" "${actions[@]}" | fzf --reverse --border --ansi --prompt="Open with: " --tmux 30%,50% --preview="echo $selected_file" --preview-window=down:3:wrap)
 
@@ -55,5 +56,8 @@ case $selected_option in
         ;;
     "finder")
         open $selected_file
+        ;;
+    "copy path")
+        echo $selected_file | pbcopy
         ;;
 esac
