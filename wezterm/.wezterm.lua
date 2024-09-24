@@ -144,4 +144,6 @@ window_frame = {
   -- font_size = fonts.font_size,
 }
 config.inactive_pane_hsb = { saturation = 1.0, brightness = 1.0 }
+
+-- plugins
 return config

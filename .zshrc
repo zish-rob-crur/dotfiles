@@ -150,6 +150,9 @@ zinit light jeffreytse/zsh-vi-mode
 zinit light skywind3000/z.lua
 # p10k
 zinit ice depth=1; zinit light romkatv/powerlevel10k
+# 
+zinit ice lucid wait'0'
+zinit light joshskidmore/zsh-fzf-history-search
 
 # 解决 zsh-vi-mode 中 history 上下键冲突
 zvm_bindkey vicmd '^[[A' history-search-backward
