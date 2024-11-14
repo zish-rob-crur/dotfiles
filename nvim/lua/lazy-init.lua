@@ -31,15 +31,6 @@ plugins = {
     },
     { "catppuccin/nvim", name = "catppuccin", priority = 1000, cond = not vim.g.vscode },
     {
-        "unblevable/quick-scope",
-        config = function()
-            if vim.g.vscode then
-                vim.cmd([[highlight QuickScopePrimary guifg='#afff5f' gui=underline ctermfg=155 cterm=underline]])
-                vim.cmd([[highlight QuickScopeSecondary guifg='#5fffff' gui=underline ctermfg=81 cterm=underline]])
-            end
-        end
-    },
-    {
         'vscode-neovim/vscode-multi-cursor.nvim',
         event = 'VeryLazy',
         cond = not not vim.g.vscode,

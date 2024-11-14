@@ -1,4 +1,3 @@
-print("vsocde nvim config")
 local vscode = require('vscode')
 local utils = require('map_utils')
 local lua_fn = utils.lua_fn

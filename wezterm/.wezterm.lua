@@ -98,7 +98,6 @@ config.keys = { {
     mods = 'CMD',
     action = wezterm.action.CloseCurrentPane { confirm = false },
   },
-
 }
 
 -- This function returns the suggested title for a tab.
