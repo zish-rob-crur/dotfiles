@@ -59,3 +59,5 @@ curl -sS https://raw.githubusercontent.com/zish-rob-crur/dotfiles/main/linux/ini
 chmod +x init_dev.sh
 ./init_dev.sh
 ```
+
+def 
