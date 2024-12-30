@@ -1,4 +1,5 @@
 # dotfiles
+
 ## oh my zsh
 
 ```shell
@@ -13,6 +14,7 @@ ln -s ~/GithubRepos/dotfiles/.vimrc .vimrc
 ```
 
 ### neoVim
+
 ```shell
 git submodule update --init --recursive
 mv ~/.config/nvim ~/.config/nvim.bak
@@ -21,21 +23,37 @@ ln -s ~/GithubRepos/dotfiles/nvim ~/.config/nvim
 ```
 
 ## Wezterm
+
 ```shell
 ln -s GitHubRepos/dotfiles/wezterm/.wezterm.lua .wezterm.lua
 ```
 
 ## tmux
+
+## Install Package
+
+### Mac OS
+
+```shell
+brew install fzf fd-find ripgrep
+```
+
+### Ubuntu
+
+```shell
+sudo apt install fzf fd-find ripgrep
+```
+
 ```shell
 git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
 ln -s ~/GithubRepos/dotfiles/tmux/.tmux.conf .tmux.conf
-pip install libtmux
-tmux 
+tmux
 <Ctrl-b> + I (install plugins)
 <Ctrl-b> + r (reload tmux)
 ```
 
 ## Init My Dev Linux
+
 ```shell
 curl -sS https://raw.githubusercontent.com/zish-rob-crur/dotfiles/main/linux/init_dev.sh  -o init_dev.sh
 chmod +x init_dev.sh
