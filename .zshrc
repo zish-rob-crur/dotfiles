@@ -324,3 +324,11 @@ if command -v fzf >/dev/null 2>&1; then
     # 你可以在这里添加更多 fzf 的配置 开启 preview 功能
     export FZF_DEFAULT_OPTS='--height 90% --layout=reverse --border --preview="bat --style=numbers --color=always {}" --preview-window=right:60%:wrap'
 fi
+
+# pnpm
+export PNPM_HOME="/Users/zhiwen.wang/Library/pnpm"
+case ":$PATH:" in
+  *":$PNPM_HOME:"*) ;;
+  *) export PATH="$PNPM_HOME:$PATH" ;;
+esac
+# pnpm end
