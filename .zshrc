@@ -330,3 +330,8 @@ case ":$PATH:" in
   *) export PATH="$PNPM_HOME:$PATH" ;;
 esac
 # pnpm end
+
+# Added by Windsurf
+export PATH="/Users/zhiwen.wang/.codeium/windsurf/bin:$PATH"
+
+export HOSTNAME=$(hostname)
