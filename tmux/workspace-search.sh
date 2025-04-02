@@ -20,6 +20,7 @@ actions=(
     "vscode"
     "new tmux window & vscode"
     "zed"
+    "windsurf"
     "vim"
     "new tmux window & vim"
     "finder"
@@ -46,6 +47,9 @@ case $selected_option in
         ;;
     "zed")
         zed $selected_file
+        ;;
+    "windsurf")
+        windsurf $selected_file
         ;;
     "vim")
         tmux send-keys -t 0 "nvim $selected_file" Enter
