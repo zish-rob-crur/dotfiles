@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 SRC="/Users/zhiwen.wang/Library/CloudStorage/Dropbox/obsidian"
 DST="/Users/zhiwen.wang/Library/Mobile Documents/iCloud~md~obsidian/Documents/obsidian"
