@@ -197,9 +197,9 @@ if [ "$os" = "Mac" ]; then
         eval "$__conda_setup"
     else
         if [ -f "/opt/homebrew/Caskroom/miniconda/base/etc/profile.d/conda.sh" ]; then
-            . "/opt/homebrew/Caskroom/miniconda/base/etc/profile.d/conda.sh"
+# . "/opt/homebrew/Caskroom/miniconda/base/etc/profile.d/conda.sh"  # commented out by conda initialize
         else
-            export PATH="/opt/homebrew/Caskroom/miniconda/base/bin:$PATH"
+# export PATH="/opt/homebrew/Caskroom/miniconda/base/bin:$PATH"  # commented out by conda initialize
         fi
     fi
     export GOPATH="$HOME/go"
@@ -217,7 +217,7 @@ if [ "$os" = "Linux" ]; then
         eval "$__conda_setup"
     else
         if [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
-            . "$HOME/miniconda3/etc/profile.d/conda.sh"
+# . "$HOME/miniconda3/etc/profile.d/conda.sh"  # commented out by conda initialize
         else
             export PATH="$HOME/miniconda3/bin:$PATH"
         fi
@@ -331,7 +331,5 @@ case ":$PATH:" in
 esac
 # pnpm end
 
-# Added by Windsurf
-export PATH="/Users/zhiwen.wang/.codeium/windsurf/bin:$PATH"
 
 export HOSTNAME=$(hostname)
