@@ -1,23 +1,40 @@
+[general]
+import = [
+    # "~/.config/alacritty/themes/catppuccin_mocha.toml",
+    "~/.config/alacritty/themes/themes/tokyo_night.toml",
+]
+
 [window]
+decorations = "Buttonless"
+decorations_theme_variant = "Dark"
 opacity = 0.95
 blur = true
+padding = { x = 8, y = 8 }
+dynamic_padding = false
+dimensions  = { columns = 120, lines = 30 }
 
 [font]
 normal = { family = "Maple Mono NF CN", style = "Regular" }
 size = 16.0
+offset = { x = 0, y = 2 }
 
 [cursor]
-style = { shape = "Block" }
+style = { shape = "Block", blinking = "On" }
+blink_interval = 700
+blink_timeout = 0
 
 [mouse]
 hide_when_typing = true
 
 [scrolling]
+history = 100000
 multiplier = 2
 
 [selection]
 save_to_clipboard = true
 
-[general]
-# git clone https://github.com/alacritty/alacritty-theme ~/.config/alacritty/themes
-import = ["~/.config/alacritty/themes/themes/tokyo_night.toml"]
+
+[[keyboard.bindings]]
+mods   = "Command"
+key    = "T"
+action = "SpawnNewInstance"
