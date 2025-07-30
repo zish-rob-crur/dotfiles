@@ -1,0 +1,23 @@
+[window]
+opacity = 0.95
+blur = true
+
+[font]
+normal = { family = "Maple Mono NF CN", style = "Regular" }
+size = 16.0
+
+[cursor]
+style = { shape = "Block" }
+
+[mouse]
+hide_when_typing = true
+
+[scrolling]
+multiplier = 2
+
+[selection]
+save_to_clipboard = true
+
+[general]
+# git clone https://github.com/alacritty/alacritty-theme ~/.config/alacritty/themes
+import = ["~/.config/alacritty/themes/themes/tokyo_night.toml"]
