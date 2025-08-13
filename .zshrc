@@ -260,30 +260,6 @@ conda_auto_activate() {
 add-zsh-hook chpwd conda_auto_activate 
 conda_auto_activate
 
-# 自动激活当前目录下的 Python 虚拟环境（支持 .venv 或 venv）
-python_auto_activate() {
-    local env_dir=""
-    # 优先使用 .venv，其次 venv
-    if [[ -d ".venv" ]]; then
-        env_dir=".venv"
-    elif [[ -d "venv" ]]; then
-        env_dir="venv"
-    fi
-
-    # 如果找到了虚拟环境目录且尚未激活，则进行激活
-    if [[ -n "$env_dir" ]]; then
-        if [[ "$VIRTUAL_ENV" != "$PWD/$env_dir" ]]; then
-            if [[ -f "$env_dir/bin/activate.zsh" ]]; then
-                source "$env_dir/bin/activate.zsh"
-            else
-                source "$env_dir/bin/activate"
-            fi
-        fi
-    fi
-}
-
-add-zsh-hook chpwd python_auto_activate
-python_auto_activate
 
 add_to_pythonpath() {
     # 获取当前目录
@@ -356,5 +332,14 @@ case ":$PATH:" in
 esac
 # pnpm end
 
+if command -v nvim &>/dev/null; then
+  export EDITOR="nvim"
+  export VISUAL="nvim"
+  export ZVM_VI_EDITOR="nvim"
+else
+  export EDITOR="vim"
+  export VISUAL="vim"
+  export ZVM_VI_EDITOR="vim"
+fi
 
 export HOSTNAME=$(hostname)

@@ -5,26 +5,16 @@ import = [
 ]
 
 [window]
-decorations = "Buttonless"
-decorations_theme_variant = "Dark"
-opacity = 0.95
+opacity = 0.90
 blur = true
 padding = { x = 8, y = 8 }
 dynamic_padding = false
-dimensions  = { columns = 120, lines = 30 }
 
 [font]
 normal = { family = "Maple Mono NF CN", style = "Regular" }
 size = 16.0
 offset = { x = 0, y = 2 }
 
-[cursor]
-style = { shape = "Block", blinking = "On" }
-blink_interval = 700
-blink_timeout = 0
-
-[mouse]
-hide_when_typing = true
 
 [scrolling]
 history = 100000
@@ -32,9 +22,3 @@ multiplier = 2
 
 [selection]
 save_to_clipboard = true
-
-
-[[keyboard.bindings]]
-mods   = "Command"
-key    = "T"
-action = "SpawnNewInstance"
