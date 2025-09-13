@@ -1,70 +1,68 @@
 #Requires AutoHotkey v2.0
+#SingleInstance Force
 
-; 禁用 CapsLock 默认功能
-SetCapsLockState("AlwaysOff")  ; 禁用 CapsLock 的默认行为
+; —— 1) 禁用 CapsLock 默认功能，并定时校正 —— 
+SetCapsLockState("AlwaysOff")     ; 启动时先关一次
+SetTimer(KeepCapsOff, 500)        ; 定时校正，防止被系统/驱动改回
+KeepCapsOff(*) {
+    SetCapsLockState("AlwaysOff")
+}
 
-; 定义全局变量
-capslockTime := 0
-capslockPressed := false
-
-; 设置检测时间间隔
-timerInterval := 300  ; 300ms
-
-; 如果单独按下 CapsLock 进行输入法切换
+; —— 2) 全局变量 —— 
+capslockTime        := 0
+capslockPressed     := false
+capslockUsedCombo   := false        ; ★新增：标记这次按压是否用于组合键
+timerInterval       := 300          ; 你的原值（只做轮询守护，不触发行为）
 SetTimer(CheckCapsLock, timerInterval)
 
-; CapsLock 按下
-CapsLock::
+; —— 3) CapsLock 按下：记录时间 + 立刻拉回 OFF —— 
+*CapsLock::
 {
-    global capslockPressed, capslockTime  ; 确保访问全局变量
-    capslockPressed := true
-    capslockTime := A_TickCount  ; 记录按下时间
+    global capslockPressed, capslockTime, capslockUsedCombo
+    capslockPressed   := true
+    capslockUsedCombo := false
+    capslockTime      := A_TickCount
+    SetCapsLockState("AlwaysOff")   ; 防抖：按下瞬间也关掉
     return
 }
 
-; CapsLock 松开
-CapsLock up::
+; —— 4) CapsLock 松开：仅在“非组合且长按(≥300ms)”时切换输入法 —— 
+*CapsLock up::
 {
-    global capslockPressed  ; 确保访问全局变量
+    global capslockPressed, capslockTime, capslockUsedCombo
     if (capslockPressed) {
-        ; 计算按下时间
         pressDuration := A_TickCount - capslockTime
-
-        if (pressDuration < 300) {
-            ; 如果按下时间小于300ms，则认为是组合键，交给其它键处理
-            return
-        } else {
-            ; 如果按下时间超过300ms，则切换输入法
-            Send("^{Space}")  ; 这里以 Ctrl+Space 为输入法切换快捷键，具体根据你的系统来调整
+        if (!capslockUsedCombo && pressDuration >= 300) {
+            Send("^{Space}")        ; 按你的系统改成对应的输入法快捷键
         }
     }
     capslockPressed := false
+    SetCapsLockState("AlwaysOff")   ; 再保险
     return
 }
 
-; CapsLock + h/j/k/l 当作方向键
-CapsLock & h::Send("{Left}")
-CapsLock & j::Send("{Down}")
-CapsLock & k::Send("{Up}")
-CapsLock & l::Send("{Right}")
+; —— 5) CapsLock 组合键 —— 
+CapsLock & h::UseCapsCombo("{Left}")
+CapsLock & j::UseCapsCombo("{Down}")
+CapsLock & k::UseCapsCombo("{Up}")
+CapsLock & l::UseCapsCombo("{Right}")
 
-; 其他按键作为 Ctrl（如 CapsLock + a 等）
-CapsLock & a::Send("^a")
-CapsLock & b::Send("^b")
-CapsLock & c::Send("^c")
-CapsLock & d::Send("^d")
-; 可以继续添加更多按键的 Ctrl 功能，类似
+CapsLock & a::UseCapsCombo("^a")
+CapsLock & b::UseCapsCombo("^b")
+CapsLock & c::UseCapsCombo("^c")
+CapsLock & d::UseCapsCombo("^d")
+; ……可继续添加
 
-CheckCapsLock()
-{
-    global capslockPressed, capslockTime  ; 确保访问全局变量
-    ; 定时检查 CapsLock 按下的时长
+UseCapsCombo(sendWhat) {
+    global capslockUsedCombo
+    capslockUsedCombo := true
+    Send(sendWhat)
+}
+
+; —— 6) 轮询守护：只维持状态，不触发切换 —— 
+CheckCapsLock() {
+    global capslockPressed
     if (capslockPressed) {
-        pressDuration := A_TickCount - capslockTime
-        if (pressDuration >= 80) {
-            ; 如果 CapsLock 按下超过80ms，认为是单独按下，执行输入法切换
-            Send("^{Space}")
-            capslockPressed := false  ; 只执行一次
-        }
+        SetCapsLockState("AlwaysOff")
     }
 }
