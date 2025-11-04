@@ -121,21 +121,11 @@ case "$cmd" in
 esac
 
 
-# Append Git info concisely when available
+# Append minimal Git dirty flag only (no branch name)
 git_frag=""
 if [[ -n "$git_root" ]]; then
-  # branch or short sha
-  branch=$(git -C "$root_dir" symbolic-ref --short -q HEAD 2>/dev/null || true)
-  if [[ -z "$branch" ]]; then
-    branch=$(git -C "$root_dir" rev-parse --short HEAD 2>/dev/null || true)
-  fi
-  dirty=""
-  # fast dirty check (ignore untracked for speed/clarity)
   if [[ -n $(git -C "$root_dir" status -uno --porcelain 2>/dev/null | head -n1) ]]; then
-    dirty="*"
-  fi
-  if [[ -n "$branch" ]]; then
-    git_frag="  ${branch}${dirty}"
+    git_frag=" *"
   fi
 fi
 
