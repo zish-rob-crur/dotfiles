@@ -159,6 +159,17 @@ zinit ice depth=1; zinit light romkatv/powerlevel10k
 zinit ice lucid wait'0'
 zinit light joshskidmore/zsh-fzf-history-search
 
+# History settings so autosuggestions/history search stay in sync across terminals
+HISTFILE=$HOME/.zsh_history
+HISTSIZE=100000
+SAVEHIST=100000
+setopt APPEND_HISTORY          # only append to history file
+setopt INC_APPEND_HISTORY      # write each command immediately
+setopt SHARE_HISTORY           # merge history from all sessions
+setopt HIST_FCNTL_LOCK         # guard concurrent writes
+setopt HIST_IGNORE_ALL_DUPS
+setopt HIST_REDUCE_BLANKS
+
 # 解决 zsh-vi-mode 中 history 上下键冲突
 zvm_bindkey vicmd '^[[A' history-search-backward
 zvm_bindkey viins '^[[A' history-search-backward
@@ -350,3 +361,4 @@ fi
 
 export HOSTNAME=$(hostname)
 
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
