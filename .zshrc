@@ -173,21 +173,6 @@ export NVM_DIR="$HOME/.nvm"
 # 将 ~/.cargo/bin 加入到 PATH
 export PATH="$HOME/.cargo/bin:$PATH"
 
-# >>> My Lias >>>
-alias python="python3"
-if command -v exa &> /dev/null; then
-    alias ls="exa"
-fi
-if command -v eza &> /dev/null; then
-    alias ls="eza"
-fi
-if command -v rg &> /dev/null; then
-    alias grep="rg"
-fi
-if command -v nvim &> /dev/null; then
-    alias vim="nvim"
-fi
-# <<< Alias
 
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
@@ -336,6 +321,22 @@ case ":$PATH:" in
   *) export PATH="$PNPM_HOME:$PATH" ;;
 esac
 # pnpm end
+
+# >>> My Lias >>>
+alias python="python3"
+if command -v exa &> /dev/null; then
+    alias ls="exa"
+fi
+if command -v eza &> /dev/null; then
+    alias ls="eza"
+fi
+if command -v rg &> /dev/null; then
+    alias grep="rg"
+fi
+if command -v nvim &> /dev/null; then
+    alias vim="nvim"
+fi
+# <<< Alias
 
 if command -v nvim &>/dev/null; then
   export EDITOR="nvim"
