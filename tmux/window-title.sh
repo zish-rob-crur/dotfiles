@@ -19,8 +19,10 @@ cmd=$(basename -- "${cmd_raw}")
 cmd=$(printf '%s' "$cmd" | tr '[:upper:]' '[:lower:]')
 
 # Resolve a short directory name; show ~ when at $HOME
+is_home="false"
 if [[ -z "${path_raw}" || "${path_raw}" == "$HOME" ]]; then
   base="~"
+  is_home="true"
 else
   base=$(basename -- "${path_raw}")
 fi
@@ -47,10 +49,10 @@ has_any() {
 }
 
 # Project type detection (cold-colour friendly icons)
-if has_any package.json bun.lockb pnpm-lock.yaml yarn.lock tsconfig.json; then
-  icon="" # Node / TS
-elif has_any pyproject.toml requirements.txt requirements.in Pipfile poetry.lock setup.py manage.py; then
+if has_any pyproject.toml requirements.txt requirements.in Pipfile poetry.lock setup.py manage.py; then
   icon="" # Python
+elif has_any package.json bun.lockb pnpm-lock.yaml yarn.lock tsconfig.json; then
+  icon="" # Node / TS
 elif has_any go.mod; then
   icon="" # Go
 elif has_any Cargo.toml; then
@@ -119,6 +121,12 @@ case "$cmd" in
   # C/C++ toolchains
   gcc|g++|clang|clang++|make|cmake|ninja) icon="" ;;
 esac
+
+
+# If at the home directory, prefer a Home icon regardless of command/project
+if [[ "$is_home" == "true" ]]; then
+  icon=""
+fi
 
 
 # Append minimal Git dirty flag only (no branch name)
