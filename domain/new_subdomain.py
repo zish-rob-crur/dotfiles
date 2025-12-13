@@ -47,14 +47,14 @@ def _normalize_proxy(proxy: str) -> str:
     return f"http://{proxy}"
 
 
+def _acme_home_dir(acme_user: str) -> Path:
+    return _resolve_user_home(acme_user) / ".acme.sh"
+
+
 def _acme_sh_path(cli_value: Optional[str], acme_user: str) -> Path:
     if cli_value:
         return Path(cli_value).expanduser()
-    return _resolve_user_home(acme_user) / ".acme.sh" / "acme.sh"
-
-
-def _acme_home_dir(acme_sh: Path) -> Path:
-    return acme_sh.parent
+    return _acme_home_dir(acme_user) / "acme.sh"
 
 
 def _resolve_user_home(username: str) -> Path:
@@ -164,20 +164,41 @@ def create_nginx_config(domain: str, webroot: Path, *, force: bool) -> None:
     _ensure_symlink(available_path, enabled_path, force=force)
 
 
-def update_nginx_config(domain: str, proxy: str, *, force: bool) -> None:
+def _file_exists_as_root(path: Path) -> bool:
+    proc = subprocess.run(_sudo_prefix() + ["test", "-f", str(path)])
+    return proc.returncode == 0
+
+
+def write_proxy_ssl_config(
+    domain: str,
+    proxy: str,
+    webroot: Path,
+    ssl_cert: Path,
+    ssl_key: Path,
+    *,
+    force: bool,
+) -> None:
     proxy_url = _normalize_proxy(proxy)
     config = f"""server {{
     listen 80;
     server_name {domain};
-    return 301 https://$server_name$request_uri;
+
+    location ^~ /.well-known/acme-challenge/ {{
+        allow all;
+        root {webroot};
+    }}
+
+    location / {{
+        return 301 https://$server_name$request_uri;
+    }}
 }}
 
 server {{
     listen 443 ssl http2;
     server_name {domain};
 
-    ssl_certificate {ssl_base_path}/{domain}/fullchain.pem;
-    ssl_certificate_key {ssl_base_path}/{domain}/key.pem;
+    ssl_certificate {ssl_cert};
+    ssl_certificate_key {ssl_key};
     ssl_session_timeout 1d;
     ssl_session_cache shared:MozSSL:10m;
     ssl_session_tickets off;
@@ -196,12 +217,14 @@ server {{
 }}
 """
     available_path = available_base_path / domain
+    enabled_path = enabled_base_path / domain
     if available_path.exists() and not force:
         raise SystemExit(f"{available_path} already exists. Use --force to overwrite.")
     if available_path.exists() and force:
         _remove_path(available_path)
 
     _write_root_file(available_path, config)
+    _ensure_symlink(available_path, enabled_path, force=force)
 
 
 def reload_nginx() -> None:
@@ -215,7 +238,7 @@ def issue_certificate(acme_sh: Path, acme_user: str, domain: str, webroot: Path)
         + [
             str(acme_sh),
             "--home",
-            str(_acme_home_dir(acme_sh)),
+            str(_acme_home_dir(acme_user)),
             "--issue",
             "-d",
             domain,
@@ -242,7 +265,7 @@ def install_certificate(acme_sh: Path, acme_user: str, domain: str) -> None:
         + [
             str(acme_sh),
             "--home",
-            str(_acme_home_dir(acme_sh)),
+            str(_acme_home_dir(acme_user)),
             "--install-cert",
             "-d",
             domain,
@@ -267,6 +290,13 @@ def install_certificate(acme_sh: Path, acme_user: str, domain: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Setup Nginx domain with SSL and reverse proxy.")
+    parser.add_argument(
+        "--mode",
+        type=str,
+        choices=["origin", "acme"],
+        default="origin",
+        help="SSL mode: 'origin' uses Cloudflare Origin cert you provide; 'acme' uses acme.sh http-01.",
+    )
     parser.add_argument("--domain", type=str, required=True, help="Domain for the Nginx server_name.")
     parser.add_argument(
         "--proxy",
@@ -284,7 +314,7 @@ def main() -> None:
         "--acme-sh",
         type=str,
         default=None,
-        help="Path to acme.sh (default: ~/.acme.sh/acme.sh; under sudo, uses $SUDO_USER home).",
+        help="Path to acme.sh (default: ~<acme-user>/.acme.sh/acme.sh).",
     )
     parser.add_argument(
         "--acme-user",
@@ -292,17 +322,47 @@ def main() -> None:
         default=None,
         help="User to run acme.sh as (default: $SUDO_USER if present, else current user).",
     )
+    parser.add_argument(
+        "--ssl-cert",
+        type=str,
+        default=None,
+        help="Path to fullchain cert for Nginx (origin mode). Default: /etc/nginx/ssl/<domain>/fullchain.pem",
+    )
+    parser.add_argument(
+        "--ssl-key",
+        type=str,
+        default=None,
+        help="Path to private key for Nginx (origin mode). Default: /etc/nginx/ssl/<domain>/key.pem",
+    )
     parser.add_argument("--force", action="store_true", help="Overwrite existing nginx config / symlink.")
 
     args = parser.parse_args()
     domain = _validate_domain(args.domain)
+    webroot = Path(args.webroot)
+    if not webroot.exists():
+        raise SystemExit(f"Webroot not found: {webroot}")
+
+    if args.mode == "origin":
+        default_cert = ssl_base_path / domain / "fullchain.pem"
+        default_key = ssl_base_path / domain / "key.pem"
+        ssl_cert = Path(args.ssl_cert).expanduser() if args.ssl_cert else default_cert
+        ssl_key = Path(args.ssl_key).expanduser() if args.ssl_key else default_key
+
+        if not _file_exists_as_root(ssl_cert):
+            raise SystemExit(f"SSL cert not found: {ssl_cert}")
+        if not _file_exists_as_root(ssl_key):
+            raise SystemExit(f"SSL key not found: {ssl_key}")
+
+        write_proxy_ssl_config(domain, args.proxy, webroot, ssl_cert, ssl_key, force=args.force)
+        reload_nginx()
+        print("Nginx setup completed (Cloudflare Origin cert mode).")
+        return
+
     acme_user = (args.acme_user or _default_acme_user()).strip()
     if not acme_user:
         raise SystemExit("Invalid --acme-user")
 
     acme_sh = _acme_sh_path(args.acme_sh, acme_user)
-    webroot = Path(args.webroot)
-
     check_prerequisites(acme_sh, webroot)
 
     create_nginx_config(domain, webroot, force=args.force)
@@ -310,7 +370,10 @@ def main() -> None:
 
     issue_certificate(acme_sh, acme_user, domain, webroot)
     install_certificate(acme_sh, acme_user, domain)
-    update_nginx_config(domain, args.proxy, force=args.force)
+
+    installed_cert = ssl_base_path / domain / "fullchain.pem"
+    installed_key = ssl_base_path / domain / "key.pem"
+    write_proxy_ssl_config(domain, args.proxy, webroot, installed_cert, installed_key, force=args.force)
     reload_nginx()
     print("Nginx setup and SSL certificate installation completed.")
 
