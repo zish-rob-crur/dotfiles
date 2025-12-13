@@ -3,6 +3,7 @@ import argparse
 import os
 import subprocess
 from pathlib import Path
+import pwd
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -46,21 +47,48 @@ def _normalize_proxy(proxy: str) -> str:
     return f"http://{proxy}"
 
 
-def _acme_user_home() -> Path:
-    sudo_user = os.environ.get("SUDO_USER")
-    if sudo_user:
-        return Path(os.path.expanduser(f"~{sudo_user}"))
-    return Path.home()
-
-
-def _acme_sh_path(cli_value: Optional[str]) -> Path:
+def _acme_sh_path(cli_value: Optional[str], acme_user: str) -> Path:
     if cli_value:
         return Path(cli_value).expanduser()
-    return _acme_user_home() / ".acme.sh" / "acme.sh"
+    return _resolve_user_home(acme_user) / ".acme.sh" / "acme.sh"
 
 
 def _acme_home_dir(acme_sh: Path) -> Path:
     return acme_sh.parent
+
+
+def _resolve_user_home(username: str) -> Path:
+    try:
+        return Path(pwd.getpwnam(username).pw_dir)
+    except KeyError:
+        return Path(os.path.expanduser(f"~{username}"))
+
+
+def _default_acme_user() -> str:
+    return os.environ.get("SUDO_USER") or os.environ.get("USER") or "root"
+
+
+def _acme_run_prefix(acme_user: str) -> list[str]:
+    effective_user = pwd.getpwuid(os.geteuid()).pw_name
+    if effective_user == acme_user:
+        return []
+    if os.geteuid() != 0:
+        raise SystemExit(f"Need root privileges to run acme.sh as user '{acme_user}'. Try running with sudo.")
+    return [
+        "sudo",
+        "-u",
+        acme_user,
+        "-H",
+        "env",
+        "-u",
+        "SUDO_USER",
+        "-u",
+        "SUDO_COMMAND",
+        "-u",
+        "SUDO_UID",
+        "-u",
+        "SUDO_GID",
+    ]
 
 
 def check_prerequisites(acme_sh: Path, webroot: Path) -> None:
@@ -181,9 +209,9 @@ def reload_nginx() -> None:
     _run(_sudo_prefix() + ["nginx", "-s", "reload"])
 
 
-def issue_certificate(acme_sh: Path, domain: str, webroot: Path) -> None:
+def issue_certificate(acme_sh: Path, acme_user: str, domain: str, webroot: Path) -> None:
     _run(
-        _sudo_prefix()
+        _acme_run_prefix(acme_user)
         + [
             str(acme_sh),
             "--home",
@@ -199,11 +227,18 @@ def issue_certificate(acme_sh: Path, domain: str, webroot: Path) -> None:
     )
 
 
-def install_certificate(acme_sh: Path, domain: str) -> None:
+def install_certificate(acme_sh: Path, acme_user: str, domain: str) -> None:
     nginx_ssl_path = ssl_base_path / domain
     _ensure_dir(nginx_ssl_path)
+    staging_dir = _resolve_user_home(acme_user) / ".acme-install" / domain
+    _run(_acme_run_prefix(acme_user) + ["mkdir", "-p", str(staging_dir)])
+
+    staging_cert = staging_dir / "cert.pem"
+    staging_key = staging_dir / "key.pem"
+    staging_fullchain = staging_dir / "fullchain.pem"
+
     _run(
-        _sudo_prefix()
+        _acme_run_prefix(acme_user)
         + [
             str(acme_sh),
             "--home",
@@ -212,14 +247,21 @@ def install_certificate(acme_sh: Path, domain: str) -> None:
             "-d",
             domain,
             "--cert-file",
-            str(nginx_ssl_path / "cert.pem"),
+            str(staging_cert),
             "--key-file",
-            str(nginx_ssl_path / "key.pem"),
+            str(staging_key),
             "--fullchain-file",
-            str(nginx_ssl_path / "fullchain.pem"),
+            str(staging_fullchain),
             "--reloadcmd",
-            "systemctl reload nginx",
+            "true",
         ]
+    )
+
+    _run(_sudo_prefix() + ["install", "-m", "644", str(staging_cert), str(nginx_ssl_path / "cert.pem")])
+    _run(_sudo_prefix() + ["install", "-m", "600", str(staging_key), str(nginx_ssl_path / "key.pem")])
+    _run(
+        _sudo_prefix()
+        + ["install", "-m", "644", str(staging_fullchain), str(nginx_ssl_path / "fullchain.pem")]
     )
 
 
@@ -244,19 +286,30 @@ def main() -> None:
         default=None,
         help="Path to acme.sh (default: ~/.acme.sh/acme.sh; under sudo, uses $SUDO_USER home).",
     )
+    parser.add_argument(
+        "--acme-user",
+        type=str,
+        default=None,
+        help="User to run acme.sh as (default: $SUDO_USER if present, else current user).",
+    )
     parser.add_argument("--force", action="store_true", help="Overwrite existing nginx config / symlink.")
 
     args = parser.parse_args()
     domain = _validate_domain(args.domain)
-    acme_sh = _acme_sh_path(args.acme_sh)
+    acme_user = (args.acme_user or _default_acme_user()).strip()
+    if not acme_user:
+        raise SystemExit("Invalid --acme-user")
+
+    acme_sh = _acme_sh_path(args.acme_sh, acme_user)
     webroot = Path(args.webroot)
 
     check_prerequisites(acme_sh, webroot)
 
     create_nginx_config(domain, webroot, force=args.force)
     reload_nginx()
-    issue_certificate(acme_sh, domain, webroot)
-    install_certificate(acme_sh, domain)
+
+    issue_certificate(acme_sh, acme_user, domain, webroot)
+    install_certificate(acme_sh, acme_user, domain)
     update_nginx_config(domain, args.proxy, force=args.force)
     reload_nginx()
     print("Nginx setup and SSL certificate installation completed.")
