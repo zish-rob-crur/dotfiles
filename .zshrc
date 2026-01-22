@@ -364,3 +364,16 @@ export HOSTNAME=$(hostname)
 [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
 
 export LESS='-R'
+
+# Locale: prefer English for terminal apps (e.g. lazygit)
+if command -v locale >/dev/null 2>&1; then
+  if locale -a 2>/dev/null | grep -qi '^en_US\.utf-8$'; then
+    export LANG='en_US.UTF-8'
+  elif locale -a 2>/dev/null | grep -qi '^C\.utf-8$'; then
+    export LANG='C.UTF-8'
+  else
+    export LANG='C'
+  fi
+else
+  export LANG='en_US.UTF-8'
+fi
