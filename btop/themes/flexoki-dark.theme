@@ -1,0 +1,88 @@
+# Theme: flexoki-dark
+# Based on Flexoki Dark (Kepano): https://stephango.com/flexoki
+# Intended to match the Flexoki colors used in tmux/wezterm in this dotfiles repo.
+
+# Colors can be in 6 or 2 character hexadecimal or single spaced rgb decimal: "#RRGGBB", "#BW" or "0-255 0-255 0-255"
+# All graphs and meters can be gradients:
+# - For single color graphs leave "mid" and "end" empty.
+# - Use "start" and "end" for two color gradients.
+# - Use "start", "mid" and "end" for three color gradients.
+
+# Main background (set to empty string for terminal default / transparency)
+theme[main_bg]="#100F0F"
+
+# Main text color
+theme[main_fg]="#CECDC3"
+
+# Title color for boxes
+theme[title]="#FFFCF0"
+
+# Highlight color for keyboard shortcuts
+theme[hi_fg]="#3AA99F"
+
+# Background color of selected item in processes box
+theme[selected_bg]="#343331"
+
+# Foreground color of selected item in processes box
+theme[selected_fg]="#FFFCF0"
+
+# Color of inactive/disabled text
+theme[inactive_fg]="#575653"
+
+# Color of text appearing on top of graphs, i.e uptime and current network graph scaling
+theme[graph_text]="#CECDC3"
+
+# Misc colors for processes box including mini cpu graphs, details memory graph and details status text
+theme[proc_misc]="#3AA99F"
+
+# Box outline colors
+theme[cpu_box]="#343331"
+theme[mem_box]="#343331"
+theme[net_box]="#343331"
+theme[proc_box]="#343331"
+theme[div_line]="#282726"
+
+# Temperature graph colors
+theme[temp_start]="#879A39"
+theme[temp_mid]="#D0A215"
+theme[temp_end]="#D14D41"
+
+# CPU graph colors
+theme[cpu_start]="#879A39"
+theme[cpu_mid]="#D0A215"
+theme[cpu_end]="#D14D41"
+
+# Mem/Disk free meter (low=red, high=green)
+theme[free_start]="#D14D41"
+theme[free_mid]="#D0A215"
+theme[free_end]="#879A39"
+
+# Mem/Disk cached meter (blue)
+theme[cached_start]="#205EA6"
+theme[cached_mid]="#4385BE"
+theme[cached_end]="#4385BE"
+
+# Mem/Disk available meter (cyan)
+theme[available_start]="#24837B"
+theme[available_mid]="#3AA99F"
+theme[available_end]="#3AA99F"
+
+# Mem/Disk used meter (low=green, high=red)
+theme[used_start]="#879A39"
+theme[used_mid]="#D0A215"
+theme[used_end]="#D14D41"
+
+# Download graph colors (blue -> cyan)
+theme[download_start]="#4385BE"
+theme[download_mid]="#3AA99F"
+theme[download_end]="#24837B"
+
+# Upload graph colors (purple)
+theme[upload_start]="#8B7EC8"
+theme[upload_mid]=""
+theme[upload_end]="#5E409D"
+
+# Process box color gradient for threads, mem and cpu usage
+theme[process_start]="#879A39"
+theme[process_mid]="#D0A215"
+theme[process_end]="#D14D41"
