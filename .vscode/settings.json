@@ -8,5 +8,7 @@
         "/opt/homebrew/Cellar/neovim/0.10.0/share/nvim/runtime/",
         // wezterm
         
-    ]
+    ],
+    "python-envs.defaultEnvManager": "ms-python.python:system",
+    "python-envs.pythonProjects": []
 }
