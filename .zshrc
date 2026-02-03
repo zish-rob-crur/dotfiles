@@ -176,6 +176,13 @@ zvm_bindkey viins '^[[A' history-search-backward
 zvm_bindkey vicmd '^[[B' history-search-forward
 zvm_bindkey viins '^[[B' history-search-forward
 
+# 用 nvim 编辑当前命令行（Ctrl-x Ctrl-e / vi 模式下按 v）
+autoload -Uz edit-command-line
+zle -N edit-command-line
+bindkey '^X^E' edit-command-line
+bindkey -M viins '^X^E' edit-command-line
+bindkey -M vicmd 'v' edit-command-line
+
 # >>> NVM >>>
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh" # This loads nvm
@@ -377,3 +384,5 @@ if command -v locale >/dev/null 2>&1; then
 else
   export LANG='en_US.UTF-8'
 fi
+
+if command -v wt >/dev/null 2>&1; then eval "$(command wt config shell init zsh)"; fi
