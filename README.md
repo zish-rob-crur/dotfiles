@@ -50,7 +50,17 @@ ln -s ~/GithubRepos/dotfiles/tmux/.tmux.conf .tmux.conf
 tmux
 <Ctrl-b> + I (install plugins)
 <Ctrl-b> + r (reload tmux)
+<Ctrl-b> + Tab (open extrakto)
+<Ctrl-b> + e (open treemux sidebar)
 ```
+
+## Git
+
+- Shared defaults live in `git/.gitconfig.shared`.
+- Shared light `delta` theme lives in `git/.gitconfig.delta-light`.
+- Machine-specific settings stay in `~/.gitconfig.local`.
+- `~/.gitconfig` only includes the shared repo config and the local machine config.
+- `git/.gitconfig.local.example` shows the expected local structure, including the optional `delta` include.
 
 ## Init My Dev Linux
 

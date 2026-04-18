@@ -1,0 +1,26 @@
+# Machine-specific Git config example.
+# Keep this file out of the repo as ~/.gitconfig.local and edit values per machine.
+
+# Uncomment on machines where delta is installed and you want the shared light diff theme.
+[include]
+    path = ~/GitHubRepos/dotfiles/git/.gitconfig.delta-light
+
+[user]
+    name = Your Name
+    email = your.email@example.com
+
+[core]
+    excludesfile = ~/.gitignore
+    editor = nvim
+
+[commit]
+    template = ~/.stCommitMsg
+
+[delta]
+    hyperlinks-file-link-format = "vscode://file/{path}:{line}"
+
+[filter "lfs"]
+    clean = git-lfs clean -- %f
+    smudge = git-lfs smudge -- %f
+    process = git-lfs filter-process
+    required = true

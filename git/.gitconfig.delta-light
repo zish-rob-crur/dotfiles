@@ -1,0 +1,35 @@
+# Optional delta config for machines that have delta installed.
+# Include this from ~/.gitconfig.local when the machine should use the light diff theme.
+
+[core]
+    pager = delta
+
+[interactive]
+    diffFilter = delta --color-only
+
+[delta]
+    navigate = true
+    light = true
+    side-by-side = true
+    hyperlinks = true
+    line-number = true
+    syntax-theme = GitHub
+    features = github-light-primer
+
+[delta "github-light-primer"]
+    file-style = bold "#0969DA"
+    hunk-header-style = file line-number bold "#57606A" "#F6F8FA"
+    hunk-header-file-style = bold "#0969DA"
+    hunk-header-line-number-style = "#8C959F"
+    line-numbers-left-style = "#8C959F"
+    line-numbers-right-style = "#8C959F"
+    line-numbers-minus-style = "#CF222E"
+    line-numbers-plus-style = "#1A7F37"
+    line-numbers-zero-style = "#8C959F"
+    minus-style = syntax "#FFEBE9"
+    minus-non-emph-style = syntax "#FFEBE9"
+    minus-emph-style = syntax bold "#FFCECB"
+    plus-style = syntax "#DAFBE1"
+    plus-non-emph-style = syntax "#DAFBE1"
+    plus-emph-style = syntax bold "#ACEEBB"
+    whitespace-error-style = reverse "#CF222E"

@@ -5,7 +5,7 @@
 # Function to sanitize and handle paths with special characters like spaces
 selected_file=$(fd -t d -E .git -E node_modules -E .venv -E venv -E 'Library/' -E 'Applications/' -d 5 . ~/ \
 | fzf  --reverse --border --ansi --prompt="Search workspace: " \
---preview="tree -C {} | head -200" --tmux 80%,50% 
+--preview="tree -C {} | head -200" --tmux 90%,50% 
 )
 
 if [ -z "$selected_file" ]; then

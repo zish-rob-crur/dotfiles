@@ -1,0 +1,19 @@
+# Shared Git defaults across machines.
+
+[difftool]
+    prompt = false
+
+[merge]
+    conflictstyle = diff3
+
+[diffk]
+    colorMoved = default
+
+[alias]
+    glog = log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit
+
+[push]
+    autoSetupRemote = true
+
+[branch]
+    sort = -committerdate
