@@ -1,0 +1,79 @@
+font-family = Maple Mono NF CN
+font-size = 16
+
+# Theme: auto light/dark
+theme = dark:Flexoki Dark,light:Github Light High Contrast
+
+# Background (性能友好一些)
+background-opacity = 1
+background-blur = 16
+background-opacity-cells = true
+
+# Split focus（让当前分栏更突出）
+# 取值范围 0.15 ~ 1，越小未聚焦分栏越“暗”
+unfocused-split-opacity = 1
+# 可选：自定义分割线颜色（不设置则由 Ghostty/主题自动选择）
+# split-divider-color = #403e3c
+# Ghostty 1.3：在 zoom 状态下切换分栏时保持 zoom
+split-preserve-zoom = navigation
+
+# Unfocused mute（只“柔化”未聚焦分栏；当前分栏完全不改色）
+custom-shader = shaders/unfocused_mute.glsl
+custom-shader-animation = false
+
+cursor-style = "block"
+# 如果你希望 prompt 也保持 block，可改成 no-cursor：
+# shell-integration-features = no-cursor,sudo,title,ssh-env,ssh-terminfo
+
+mouse-hide-while-typing = true
+mouse-scroll-multiplier = 3
+
+copy-on-select = clipboard
+clipboard-trim-trailing-spaces = true
+clipboard-paste-protection = true
+right-click-action = copy-or-paste
+
+# 更稳妥，且不影响“在 prompt 时快速关闭”
+confirm-close-surface = true
+
+shell-integration = detect
+shell-integration-features = cursor,sudo,title,ssh-env,ssh-terminfo
+
+window-inherit-working-directory = true
+# 128 MiB / surface
+scrollback-limit = 134217728
+
+# Quick terminal（macOS）
+keybind = global:cmd+`=toggle_quick_terminal
+quick-terminal-position = top
+quick-terminal-size = 35%
+quick-terminal-autohide = true
+
+# Ghostty 1.3: key table（类似 tmux 的 modal keybindings）
+# 用 Cmd+; 进入 split 模式，然后用 Vim 风格键位管理分栏。
+keybind = cmd+;=activate_key_table:split
+keybind = split/h=goto_split:left
+keybind = split/j=goto_split:down
+keybind = split/k=goto_split:up
+keybind = split/l=goto_split:right
+keybind = split/shift+h=resize_split:left,10
+keybind = split/shift+j=resize_split:down,10
+keybind = split/shift+k=resize_split:up,10
+keybind = split/shift+l=resize_split:right,10
+keybind = split/v=new_split:right
+keybind = split/s=new_split:down
+keybind = split/z=toggle_split_zoom
+keybind = split/e=equalize_splits
+keybind = split/q=deactivate_key_table
+keybind = split/escape=deactivate_key_table
+keybind = split/catch_all=ignore
+
+# Prompt 间快速跳转（需 shell integration）
+keybind = cmd+shift+j=jump_to_prompt:-1
+keybind = cmd+shift+k=jump_to_prompt:1
+
+notify-on-command-finish = unfocused
+notify-on-command-finish-action = no-bell,notify
+notify-on-command-finish-after = 30s
+
+macos-titlebar-proxy-icon = hidden

@@ -45,11 +45,12 @@ link_path "${DOTFILES_DIR}/.p10k.zsh" "${HOME}/.p10k.zsh"
 link_path "${DOTFILES_DIR}/.ideavimrc" "${HOME}/.ideavimrc"
 link_path "${DOTFILES_DIR}/vim/.vimrc" "${HOME}/.vimrc"
 link_path "${DOTFILES_DIR}/tmux/.tmux.conf" "${HOME}/.tmux.conf"
-link_path "${DOTFILES_DIR}/wezterm/.wezterm.lua" "${HOME}/.wezterm.lua"
 
 # XDG configs
 link_path "${DOTFILES_DIR}/alacritty/alacritty.toml" "${HOME}/.config/alacritty/alacritty.toml"
 link_path "${DOTFILES_DIR}/btop/themes" "${HOME}/.config/btop/themes"
+link_path "${DOTFILES_DIR}/ghostty/config" "${HOME}/.config/ghostty/config"
+link_path "${DOTFILES_DIR}/ghostty/shaders/unfocused_mute.glsl" "${HOME}/.config/ghostty/shaders/unfocused_mute.glsl"
 link_path "${DOTFILES_DIR}/karabiner/karabiner.json" "${HOME}/.config/karabiner/karabiner.json"
 
 # Helper scripts

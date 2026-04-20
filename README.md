@@ -22,10 +22,13 @@ mv ~/.local/share/nvim ~/.local/share/nvim.bak
 ln -s ~/GithubRepos/dotfiles/nvim ~/.config/nvim
 ```
 
-## Wezterm
+## Ghostty
 
 ```shell
-ln -s GitHubRepos/dotfiles/wezterm/.wezterm.lua .wezterm.lua
+mkdir -p ~/.config/ghostty
+ln -s ~/GithubRepos/dotfiles/ghostty/config ~/.config/ghostty/config
+mkdir -p ~/.config/ghostty/shaders
+ln -s ~/GithubRepos/dotfiles/ghostty/shaders/unfocused_mute.glsl ~/.config/ghostty/shaders/unfocused_mute.glsl
 ```
 
 ## tmux
@@ -61,6 +64,17 @@ tmux
 - Machine-specific settings stay in `~/.gitconfig.local`.
 - `~/.gitconfig` only includes the shared repo config and the local machine config.
 - `git/.gitconfig.local.example` shows the expected local structure, including the optional `delta` include.
+
+## Codex Skills
+
+- `.agents/skills/dotfiles-init-update` is the source of truth for personal dotfiles bootstrap and update.
+- Keep `~/.codex/skills/dotfiles-init-update` as a symlink to the repo copy so Codex can auto-discover the skill.
+- Bootstrap that link with:
+
+```shell
+mkdir -p ~/.codex/skills
+ln -s ~/GitHubRepos/dotfiles/.agents/skills/dotfiles-init-update ~/.codex/skills/dotfiles-init-update
+```
 
 ## Init My Dev Linux
 

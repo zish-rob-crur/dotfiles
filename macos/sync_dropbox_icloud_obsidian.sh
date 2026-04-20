@@ -2,8 +2,8 @@
 set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
-SRC="/Users/zhiwen.wang/Library/CloudStorage/Dropbox/obsidian"
-DST="/Users/zhiwen.wang/Library/Mobile Documents/iCloud~md~obsidian/Documents/obsidian"
+SRC="$HOME/Library/CloudStorage/Dropbox/obsidian"
+DST="$HOME/Library/Mobile Documents/iCloud~md~obsidian/Documents/obsidian"
 
 COMMON_OPTS="--fast-list --progress -v"
 BISYNC_OPTS="--checksum \

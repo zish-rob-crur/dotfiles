@@ -1,0 +1,4 @@
+interface:
+  display_name: "Dotfiles Init Update"
+  short_description: "Bootstrap and update personal dotfiles and AstroNvim"
+  default_prompt: "Use $dotfiles-init-update to initialize or update my dotfiles and AstroNvim setup."
