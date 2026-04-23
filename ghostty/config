@@ -44,7 +44,8 @@ window-inherit-working-directory = true
 scrollback-limit = 134217728
 
 # Quick terminal（macOS）
-keybind = global:cmd+`=toggle_quick_terminal
+# 禁用 Cmd+` 快速终端快捷键，覆盖 Ghostty 默认绑定和本地旧绑定
+keybind = cmd+`=unbind
 quick-terminal-position = top
 quick-terminal-size = 35%
 quick-terminal-autohide = true
