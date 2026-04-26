@@ -1,8 +1,11 @@
 #! /bin/bash
 
+set -euo pipefail
+
 # Resolve dotfiles directory (repo root)
 DOTFILES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 BACKUP_SUFFIX="$(date +%Y%m%d%H%M%S)"
+TPM_DIR="${HOME}/.tmux/plugins/tpm"
 
 link_path() {
     local src="$1"
@@ -30,14 +33,33 @@ link_path() {
     echo "Linked: ${dst} -> ${src}"
 }
 
+install_brew_packages() {
+    local packages=(tmux neovim zsh fzf ripgrep fd bat eza)
+
+    echo "Installing Homebrew packages: ${packages[*]}"
+    brew install "${packages[@]}"
+}
+
+install_tpm() {
+    if [ -d "${TPM_DIR}" ]; then
+        echo "TPM already installed: ${TPM_DIR}"
+        return 0
+    fi
+
+    mkdir -p "$(dirname "${TPM_DIR}")"
+    git clone https://github.com/tmux-plugins/tpm "${TPM_DIR}"
+    echo "Installed TPM: ${TPM_DIR}"
+}
+
 # check if Homebrew is installed
 if ! command -v brew >/dev/null 2>&1; then
     echo "Installing Homebrew..."
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 fi
 
-# 必备的一些命令行工具 tmux, neovim, zsh, fzf, ripgrep, fd, bat, exa
-brew install tmux neovim zsh fzf ripgrep fd bat exa
+install_brew_packages
+
+git -C "${DOTFILES_DIR}" submodule update --init --recursive
 
 # Symlinks (keep configs in sync with dotfiles)
 link_path "${DOTFILES_DIR}/.zshrc" "${HOME}/.zshrc"
@@ -55,3 +77,5 @@ link_path "${DOTFILES_DIR}/karabiner/karabiner.json" "${HOME}/.config/karabiner/
 
 # Helper scripts
 link_path "${DOTFILES_DIR}/fzf_scripts/ssh-fzf.sh" "${HOME}/.local/bin/ssh-fzf"
+
+install_tpm

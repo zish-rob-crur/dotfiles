@@ -38,8 +38,10 @@ ln -s ~/GithubRepos/dotfiles/ghostty/shaders/unfocused_mute.glsl ~/.config/ghost
 ### Mac OS
 
 ```shell
-brew install fzf fd-find ripgrep
+brew install tmux neovim zsh fzf ripgrep fd bat eza
 ```
+
+> `exa` has been removed from Homebrew; use `eza` as the maintained replacement.
 
 ### Ubuntu
 
@@ -48,6 +50,7 @@ sudo apt install fzf fd-find ripgrep
 ```
 
 ```shell
+mkdir -p ~/.tmux/plugins
 git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
 ln -s ~/GithubRepos/dotfiles/tmux/.tmux.conf .tmux.conf
 tmux
