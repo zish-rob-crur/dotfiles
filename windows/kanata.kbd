@@ -1,0 +1,47 @@
+;; HHKB-style CapsLock layer for Windows.
+;;
+;; Run with:
+;;   powershell -ExecutionPolicy Bypass -File .\windows\start_kanata.ps1
+;;
+;; Physical CapsLock, F13, or LCtrl acts as a tap-hold key:
+;; - tap -> Shift, for input method toggle
+;; - h/j/k/l -> left/down/up/right
+;; - letters and common editing keys -> Ctrl shortcuts
+
+(defcfg
+  process-unmapped-keys yes
+)
+
+(defsrc
+  caps f13 lctl
+
+  a b c d e f g h i j k l m
+  n o p q r s t u v w x y z
+
+  1 2 3 4 5 6 7 8 9 0
+  tab bspc del
+)
+
+(defalias
+  hhkb (tap-hold 200 200 lsft (layer-while-held hhkb))
+)
+
+(deflayer base
+  @hhkb @hhkb @hhkb
+
+  a b c d e f g h i j k l m
+  n o p q r s t u v w x y z
+
+  1 2 3 4 5 6 7 8 9 0
+  tab bspc del
+)
+
+(deflayer hhkb
+  _ _ _
+
+  C-a C-b C-c C-d C-e C-f C-g left C-i down up rght C-m
+  C-n C-o C-p C-q C-r C-s C-t C-u C-v C-w C-x C-y C-z
+
+  C-1 C-2 C-3 C-4 C-5 C-6 C-7 C-8 C-9 C-0
+  C-tab C-bspc C-del
+)
