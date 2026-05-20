@@ -44,10 +44,10 @@ window-inherit-working-directory = true
 scrollback-limit = 134217728
 
 # Quick terminal（macOS）
-# 禁用 Cmd+` 快速终端快捷键，覆盖 Ghostty 默认绑定和本地旧绑定
-keybind = cmd+`=unbind
+# Ghostty 1.3 只支持 top/bottom/left/right/center；用 top + 较窄宽度近似左上角弹出。
+keybind = global:ctrl+backquote=toggle_quick_terminal
 quick-terminal-position = top
-quick-terminal-size = 35%
+quick-terminal-size = 90%,100%
 quick-terminal-autohide = true
 
 # Ghostty 1.3: key table（类似 tmux 的 modal keybindings）
