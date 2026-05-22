@@ -5,7 +5,7 @@ font-size = 16
 theme = dark:Flexoki Dark,light:Github Light High Contrast
 
 # Background (性能友好一些)
-background-opacity = 1
+background-opacity = 0.93
 background-blur = 16
 background-opacity-cells = true
 
