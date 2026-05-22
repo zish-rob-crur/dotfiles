@@ -70,14 +70,7 @@ tmux
 
 ## Codex Skills
 
-- `.agents/skills/dotfiles-init-update` is the source of truth for personal dotfiles bootstrap and update.
-- Keep `~/.codex/skills/dotfiles-init-update` as a symlink to the repo copy so Codex can auto-discover the skill.
-- Bootstrap that link with:
-
-```shell
-mkdir -p ~/.codex/skills
-ln -s ~/GitHubRepos/dotfiles/.agents/skills/dotfiles-init-update ~/.codex/skills/dotfiles-init-update
-```
+- Keep personal/project skills in this repo under `.agents/skills/<skill-name>`.
 
 ## Init My Dev Linux
 

@@ -36,6 +36,7 @@ Bootstrap and refresh zish local shell/editor/tmux config from the personal dotf
 - Do not use the dotfiles repo's legacy `dotfiles/nvim` link path for this skill.
 - Do not delete `~/.local/share/nvim`, `~/.local/state/nvim`, or other Neovim caches unless the user explicitly asks for a clean reset.
 - Backup conflicting files and directories by renaming them with a timestamp suffix before creating a managed symlink.
+- Keep personal/project skills in `dotfiles/.agents/skills`.
 - Stop if an expected repo path already exists but is not a git repository. Do not overwrite unknown directories.
 - For package-manager work such as `brew install` or `apt install`, prefer the repo's existing platform bootstrap scripts only when the user explicitly wants package installation. This skill's bundled script focuses on repo sync, symlinks, TPM, Ghostty, and AstroNvim.
 

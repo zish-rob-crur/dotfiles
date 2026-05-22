@@ -7,8 +7,7 @@
 - AstroNvim repo: `~/GitHubRepos/zish-rob-crur/AstroNvim`
 - AstroNvim remote: `https://github.com/zish-rob-crur/AstroNvim.git`
 - TPM dir: `~/.tmux/plugins/tpm`
-- Skill source of truth: `dotfiles/.agents/skills/dotfiles-init-update`
-- Codex install path: `~/.codex/skills/dotfiles-init-update` should symlink to the repo copy when this repo is present locally
+- Skill source of truth: `dotfiles/.agents/skills`
 
 ## Managed links
 
