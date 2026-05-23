@@ -1,5 +1,21 @@
 # dotfiles
 
+## Bootstrap
+
+```shell
+scripts/bootstrap_dotfiles.sh --mode init
+```
+
+This links the managed dotfiles, installs TPM, links AstroNvim from
+`~/GithubRepos/zish-rob-crur/AstroNvim`, installs the macOS package list from
+`Brewfile`, and installs the default Node version through `nvm`.
+
+For package-only refreshes:
+
+```shell
+scripts/install_brewfile_parallel.sh Brewfile
+```
+
 ## oh my zsh
 
 ```shell
@@ -16,10 +32,7 @@ ln -s ~/GithubRepos/dotfiles/.vimrc .vimrc
 ### neoVim
 
 ```shell
-git submodule update --init --recursive
-mv ~/.config/nvim ~/.config/nvim.bak
-mv ~/.local/share/nvim ~/.local/share/nvim.bak
-ln -s ~/GithubRepos/dotfiles/nvim ~/.config/nvim
+ln -s ~/GithubRepos/zish-rob-crur/AstroNvim ~/.config/nvim
 ```
 
 ## Ghostty
@@ -38,10 +51,11 @@ ln -s ~/GithubRepos/dotfiles/ghostty/shaders/unfocused_mute.glsl ~/.config/ghost
 ### Mac OS
 
 ```shell
-brew install tmux neovim zsh fzf ripgrep fd bat eza
+brew bundle --file Brewfile
 ```
 
-> `exa` has been removed from Homebrew; use `eza` as the maintained replacement.
+The bootstrap script uses `scripts/install_brewfile_parallel.sh` for a faster
+formula/cask install from the same `Brewfile`.
 
 ### Ubuntu
 
@@ -62,11 +76,21 @@ tmux
 
 ## Git
 
+- `~/.gitconfig` is linked from `git/.gitconfig`.
 - Shared defaults live in `git/.gitconfig.shared`.
 - Shared light `delta` theme lives in `git/.gitconfig.delta-light`.
 - Machine-specific settings stay in `~/.gitconfig.local`.
 - `~/.gitconfig` only includes the shared repo config and the local machine config.
 - `git/.gitconfig.local.example` shows the expected local structure, including the optional `delta` include.
+
+Personal machines can use this local identity:
+
+```shell
+git config --file ~/.gitconfig.local user.name zish
+git config --file ~/.gitconfig.local user.email me@zish-rob-crur.com
+```
+
+Do not create `~/.gitconfig.local` on work machines unless a work identity is needed.
 
 ## Codex Skills
 

@@ -1,0 +1,8 @@
+# Global Git entrypoint managed by dotfiles.
+# Machine-specific identity belongs in ~/.gitconfig.local.
+
+[include]
+    path = ~/GithubRepos/dotfiles/git/.gitconfig.shared
+
+[include]
+    path = ~/.gitconfig.local

@@ -185,7 +185,11 @@ bindkey -M vicmd 'v' edit-command-line
 
 # >>> NVM >>>
 export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh" # This loads nvm
+if [ -s "/opt/homebrew/opt/nvm/nvm.sh" ]; then
+  \. "/opt/homebrew/opt/nvm/nvm.sh"
+elif [ -s "$NVM_DIR/nvm.sh" ]; then
+  \. "$NVM_DIR/nvm.sh"
+fi
 # <<< NVM
 
 # 将 ~/.cargo/bin 加入到 PATH
@@ -243,6 +247,8 @@ export PATH="$HOME/.local/nvim/bin:${PATH}"
 
 
 load-nvmrc() {
+  command -v nvm >/dev/null 2>&1 || return 0
+
   local nvmrc_path="$PWD/.nvmrc"
 
   # 检查 .nvmrc 文件是否存在并且不为空
@@ -346,7 +352,7 @@ if command -v fzf >/dev/null 2>&1; then
 fi
 
 # pnpm
-export PNPM_HOME="/Users/zhiwen.wang/Library/pnpm"
+export PNPM_HOME="$HOME/Library/pnpm"
 case ":$PATH:" in
   *":$PNPM_HOME:"*) ;;
   *) export PATH="$PNPM_HOME:$PATH" ;;
@@ -381,7 +387,11 @@ fi
 
 export HOSTNAME=$(hostname)
 
-[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+if [ -s "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm" ]; then
+  \. "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm"
+elif [ -s "$NVM_DIR/bash_completion" ]; then
+  \. "$NVM_DIR/bash_completion"
+fi
 
 export LESS='-R'
 
