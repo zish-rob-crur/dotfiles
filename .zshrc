@@ -283,19 +283,32 @@ add_to_pythonpath() {
 }
 alias addpy='add_to_pythonpath'
 
+# 保留 Ghostty shell integration 注入的 ssh wrapper；它会处理 xterm-ghostty
+# 的 terminfo 安装和 TERM 降级逻辑。
+if (( $+functions[ssh] )) && (( ! $+functions[_dotfiles_ssh_original] )) && [[ ${functions[ssh]} != *"_dotfiles_ssh_original"* ]]; then
+  functions -c ssh _dotfiles_ssh_original
+fi
+
 ssh() {
-    # 如果是在 tmux 里面我们将机器的名字作为当前window的名字
-if [[ -n $TMUX ]]; then
+  # 如果是在 tmux 里面我们将机器的名字作为当前window的名字
+  if [[ -n $TMUX && $# -gt 0 ]]; then
     echo "in tmux"
     tmux rename-window "$(basename "$1")"
   fi
   if [[ $1 == gpu-* ]]; then
     echo "connecting to gpu using tssh"
-    tssh "${1#ssh-}" "${@:2}"
+    if [[ $TERM == xterm-ghostty ]]; then
+      TERM=xterm-256color tssh "${1#ssh-}" "${@:2}"
+    else
+      tssh "${1#ssh-}" "${@:2}"
+    fi
+  elif (( $+functions[_dotfiles_ssh_original] )); then
+    _dotfiles_ssh_original "$@"
+  elif [[ $TERM == xterm-ghostty ]]; then
+    TERM=xterm-256color command ssh "$@"
   else
     command ssh "$@"
   fi
-
 }
 
 compctl -K _ssh ssh
