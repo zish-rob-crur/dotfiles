@@ -12,6 +12,7 @@ OSC9_LIMIT = 180
 TITLE_LIMIT = 72
 SUBTITLE_LIMIT = 110
 MESSAGE_LIMIT = 160
+TERMINAL_NOTIFIER_TIMEOUT_SECONDS = 3
 
 
 def collapse(text: str) -> str:
@@ -157,9 +158,15 @@ def send_terminal_notifier(title: str, subtitle: str, message: str, group: str) 
     if subtitle:
         command.extend(["-subtitle", subtitle])
     try:
-        subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(
+            command,
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=TERMINAL_NOTIFIER_TIMEOUT_SECONDS,
+        )
         return True
-    except (OSError, subprocess.CalledProcessError):
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
         return False
 
 

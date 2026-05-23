@@ -64,24 +64,27 @@ if notification.get("type") != "agent-turn-complete":
 
 tmux_meta = os.environ.get("TMUX_META", "")
 if tmux_meta:
-    session_name, window_id, window_index, window_name, pane_id = tmux_meta.split("\t", 4)
-    state_dir = os.environ["STATE_DIR"]
-    state_path = os.path.join(state_dir, f"pane-{pane_id.lstrip('%')}.json")
-    payload = {
-        "pane_id": pane_id,
-        "window_id": window_id,
-        "window_index": window_index,
-        "window_name": window_name,
-        "session_name": session_name,
-        "completed_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
-        "cwd": collapse(notification.get("cwd", "")),
-        "summary": collapse(task_summary(notification.get("input-messages"))),
-        "assistant": collapse(notification.get("last-assistant-message", "")),
-        "thread_id": collapse(notification.get("thread-id", "")),
-        "unread": True,
-    }
-    with open(state_path, "w", encoding="utf-8") as fh:
-        json.dump(payload, fh, ensure_ascii=False)
+    parts = tmux_meta.split("\t", 4)
+    if len(parts) == 5:
+        session_name, window_id, window_index, window_name, pane_id = parts
+        if session_name and window_id.startswith("@") and pane_id.startswith("%"):
+            state_dir = os.environ["STATE_DIR"]
+            state_path = os.path.join(state_dir, f"pane-{pane_id.lstrip('%')}.json")
+            payload = {
+                "pane_id": pane_id,
+                "window_id": window_id,
+                "window_index": window_index,
+                "window_name": window_name,
+                "session_name": session_name,
+                "completed_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+                "cwd": collapse(notification.get("cwd", "")),
+                "summary": collapse(task_summary(notification.get("input-messages"))),
+                "assistant": collapse(notification.get("last-assistant-message", "")),
+                "thread_id": collapse(notification.get("thread-id", "")),
+                "unread": True,
+            }
+            with open(state_path, "w", encoding="utf-8") as fh:
+                json.dump(payload, fh, ensure_ascii=False)
 PY
 
   tmux refresh-client -S >/dev/null 2>&1 || true
