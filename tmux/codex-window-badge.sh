@@ -3,10 +3,10 @@
 set -euo pipefail
 
 STATE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/codex-tmux-status"
+GC_INTERVAL="${CODEX_TMUX_BADGE_GC_INTERVAL:-60}"
 RUN_COLOR="#0969DA"
 RUN_MUTED_COLOR="#8C959F"
 DONE_COLOR="#1A7F37"
-SPINNER_RE='^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] '
 
 state_path_for_pane() {
   printf '%s/pane-%s.json' "${STATE_DIR}" "${1#%}"
@@ -20,13 +20,28 @@ is_codex_command() {
 }
 
 is_running_title() {
-  printf '%s\n' "${1:-}" | LC_ALL=en_US.UTF-8 grep -Eq "${SPINNER_RE}"
+  case "${1:-}" in
+    "⠋ "*|"⠙ "*|"⠹ "*|"⠸ "*|"⠼ "*|"⠴ "*|"⠦ "*|"⠧ "*|"⠇ "*|"⠏ "*) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 gc_stale_state_files() {
-  local path pane_num pane_id
+  local path pane_num pane_id stamp_path now last
 
   [[ -d "${STATE_DIR}" ]] || return 0
+
+  stamp_path="${STATE_DIR}/.gc-stamp"
+  now=$(date +%s)
+  last=0
+  if [[ -f "${stamp_path}" ]]; then
+    IFS= read -r last < "${stamp_path}" || last=0
+  fi
+  [[ ${last} =~ ^[0-9]+$ ]] || last=0
+  if (( now - last < GC_INTERVAL )); then
+    return 0
+  fi
+  printf '%s\n' "${now}" > "${stamp_path}"
 
   for path in "${STATE_DIR}"/pane-*.json; do
     [[ -e "${path}" ]] || break
