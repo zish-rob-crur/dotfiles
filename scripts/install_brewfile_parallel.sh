@@ -4,6 +4,7 @@ set -euo pipefail
 
 BREWFILE="${1:-Brewfile}"
 BREW_JOBS="${BREW_JOBS:-4}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 
 if [ ! -f "${BREWFILE}" ]; then
     echo "Brewfile not found: ${BREWFILE}" >&2
@@ -52,7 +53,12 @@ install_casks_parallel() {
         ' "${BREW}" {}
 }
 
+install_cargo_tools() {
+    "${SCRIPT_DIR}/install_cargo_tools.sh"
+}
+
 "${BREW}" update
 install_taps
 install_formulae
 install_casks_parallel
+install_cargo_tools

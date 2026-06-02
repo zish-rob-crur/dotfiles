@@ -45,12 +45,13 @@ else
 fi
 
 # git clone my dotfiles
-sudo apt-get install git
+sudo apt-get install git rustc cargo
 #  check my ~/GithubRepos exists
 if [ ! -d ~/GithubRepos ]; then
     mkdir ~/GithubRepos
 fi
 git clone https://github.com/zish-rob-crur/dotfiles.git ~/GithubRepos/dotfiles
+~/GithubRepos/dotfiles/scripts/install_cargo_tools.sh
 
 # install zsh
 sudo apt-get install zsh

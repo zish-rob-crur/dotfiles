@@ -34,10 +34,14 @@ link_path() {
 }
 
 install_brew_packages() {
-    local packages=(tmux neovim zsh fzf ripgrep fd bat eza)
+    local packages=(tmux neovim zsh fzf ripgrep fd bat eza rust)
 
     echo "Installing Homebrew packages: ${packages[*]}"
     brew install "${packages[@]}"
+}
+
+install_cargo_tools() {
+    "${DOTFILES_DIR}/scripts/install_cargo_tools.sh"
 }
 
 install_tpm() {
@@ -69,6 +73,7 @@ if ! command -v brew >/dev/null 2>&1; then
 fi
 
 install_brew_packages
+install_cargo_tools
 
 git -C "${DOTFILES_DIR}" submodule update --init --recursive
 

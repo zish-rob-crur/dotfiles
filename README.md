@@ -8,13 +8,16 @@ scripts/bootstrap_dotfiles.sh --mode init
 
 This links the managed dotfiles, installs TPM, links AstroNvim from
 `~/GithubRepos/zish-rob-crur/AstroNvim`, installs the macOS package list from
-`Brewfile`, and installs the default Node version through `nvm`.
+`Brewfile`, installs the default Node version through `nvm`, and installs
+default Cargo tools such as `spymux`.
 
 For package-only refreshes:
 
 ```shell
 scripts/install_brewfile_parallel.sh Brewfile
 ```
+
+This also installs the default Cargo tools after Rust is available.
 
 ## oh my zsh
 
