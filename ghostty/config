@@ -28,6 +28,10 @@ cursor-style = "block"
 mouse-hide-while-typing = true
 mouse-scroll-multiplier = 3
 
+# Use left Option as terminal Alt/Meta so Neovim <M-...> mappings work.
+# Keep right Option available for macOS Unicode input.
+macos-option-as-alt = left
+
 copy-on-select = clipboard
 clipboard-trim-trailing-spaces = true
 clipboard-paste-protection = true
