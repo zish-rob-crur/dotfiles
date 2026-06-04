@@ -45,7 +45,11 @@ mkdir -p ~/.config/ghostty
 ln -s ~/GithubRepos/dotfiles/ghostty/config ~/.config/ghostty/config
 mkdir -p ~/.config/ghostty/shaders
 ln -s ~/GithubRepos/dotfiles/ghostty/shaders/unfocused_mute.glsl ~/.config/ghostty/shaders/unfocused_mute.glsl
+mkdir -p ~/Library/Fonts
+cp ~/GithubRepos/dotfiles/fonts/CodexStatusSymbols.ttf ~/Library/Fonts/CodexStatusSymbols.ttf
 ```
+
+Ghostty expects `Maple Mono NF CN`; `brew bundle --file Brewfile` installs it. `CodexStatusSymbols.ttf` provides the custom Codex and lightweight terminal status icons.
 
 ## tmux
 

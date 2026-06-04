@@ -120,6 +120,29 @@ link_path() {
     run ln -s "${src}" "${dst}"
 }
 
+install_font() {
+    local src="$1"
+    local dst="$2"
+
+    if [ ! -e "${src}" ]; then
+        echo "Skip missing font: ${src}"
+        return 0
+    fi
+
+    run mkdir -p "$(dirname "${dst}")"
+
+    if [ -f "${dst}" ] && [ ! -L "${dst}" ] && cmp -s "${src}" "${dst}"; then
+        echo "Already installed font: ${dst}"
+        return 0
+    fi
+
+    if [ -e "${dst}" ] || [ -L "${dst}" ]; then
+        run mv "${dst}" "${dst}.bak.${BACKUP_SUFFIX}"
+    fi
+
+    run cp "${src}" "${dst}"
+}
+
 ensure_tpm() {
     if [ -d "${TPM_DIR}" ]; then
         echo "TPM already installed: ${TPM_DIR}"
@@ -205,6 +228,7 @@ if [ "$(uname -s)" = "Darwin" ]; then
     link_path "${DOTFILES_REPO}/ghostty/config" "${HOME}/.config/ghostty/config"
     link_path "${DOTFILES_REPO}/ghostty/shaders/unfocused_mute.glsl" "${HOME}/.config/ghostty/shaders/unfocused_mute.glsl"
     link_path "${DOTFILES_REPO}/karabiner/karabiner.json" "${HOME}/.config/karabiner/karabiner.json"
+    install_font "${DOTFILES_REPO}/fonts/CodexStatusSymbols.ttf" "${HOME}/Library/Fonts/CodexStatusSymbols.ttf"
 fi
 
 if [ -d "${ASTRO_REPO}" ]; then

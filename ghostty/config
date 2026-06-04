@@ -1,5 +1,9 @@
 font-family = Maple Mono NF CN
+# Keep only the compact tmux status glyphs outside Maple Mono NF CN; Maple's own Nerd glyphs match its text metrics better.
+font-codepoint-map = U+E00B-U+E00D,U+100000=Codex Status Symbols
 font-size = 16
+window-padding-y = 1
+window-padding-balance = true
 
 # Theme: auto light/dark
 theme = dark:Flexoki Dark,light:Github Light High Contrast

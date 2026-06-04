@@ -1,3 +1,6 @@
 nvim/lazy-lock.json
 .idea
 .env
+__pycache__/
+*.py[cod]
+$CODEX_HOME/

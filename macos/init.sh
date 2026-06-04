@@ -33,6 +33,32 @@ link_path() {
     echo "Linked: ${dst} -> ${src}"
 }
 
+install_font() {
+    local src="$1"
+    local dst="$2"
+
+    if [ ! -e "${src}" ]; then
+        echo "Skip font (not found): ${src}"
+        return 0
+    fi
+
+    mkdir -p "$(dirname "${dst}")"
+
+    if [ -f "${dst}" ] && [ ! -L "${dst}" ] && cmp -s "${src}" "${dst}"; then
+        echo "Font already installed: ${dst}"
+        return 0
+    fi
+
+    if [ -e "${dst}" ] || [ -L "${dst}" ]; then
+        local backup="${dst}.bak.${BACKUP_SUFFIX}"
+        mv "${dst}" "${backup}"
+        echo "Backed up font: ${backup}"
+    fi
+
+    cp "${src}" "${dst}"
+    echo "Installed font: ${dst}"
+}
+
 install_brew_packages() {
     local packages=(tmux neovim zsh fzf ripgrep fd bat eza rust)
 
@@ -90,6 +116,7 @@ link_path "${DOTFILES_DIR}/btop/themes" "${HOME}/.config/btop/themes"
 link_path "${DOTFILES_DIR}/ghostty/config" "${HOME}/.config/ghostty/config"
 link_path "${DOTFILES_DIR}/ghostty/shaders/unfocused_mute.glsl" "${HOME}/.config/ghostty/shaders/unfocused_mute.glsl"
 link_path "${DOTFILES_DIR}/karabiner/karabiner.json" "${HOME}/.config/karabiner/karabiner.json"
+install_font "${DOTFILES_DIR}/fonts/CodexStatusSymbols.ttf" "${HOME}/Library/Fonts/CodexStatusSymbols.ttf"
 
 # Helper scripts
 link_path "${DOTFILES_DIR}/fzf_scripts/ssh-fzf.sh" "${HOME}/.local/bin/ssh-fzf"
