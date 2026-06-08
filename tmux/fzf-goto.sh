@@ -91,9 +91,15 @@ select_pane_in_window() {
 }
 
 windows="$(tmux list-windows -t "$session" -F $'W\t#{window_index}\t[W] #{window_index}: #{window_name}  (panes #{window_panes})  #{pane_current_path} #{?window_active,[active],}' 2>/dev/null || true)"
-[[ -z "$windows" ]] && exit 0
+panes="$(tmux list-panes -s -t "$session" -F $'P\t#{window_index}.#{pane_index}\t[P] #{window_index}.#{pane_index}: #{window_name}  [#{pane_title}] #{pane_current_command}  #{pane_current_path} #{?pane_active,[active],[inactive]}' 2>/dev/null || true)"
 
-out="$(printf '%s\n' "$windows" | run_fzf "Go to Window  (Enter: switch  Ctrl-p: panes  Ctrl-/: preview)" "ctrl-p")" || exit 0
+entries="$windows"
+if [[ -n "$panes" ]]; then
+  entries+=$'\n'"$panes"
+fi
+[[ -z "$entries" ]] && exit 0
+
+out="$(printf '%s\n' "$entries" | run_fzf "Go to Window/Pane  (Enter: switch  Ctrl-p: panes for window  Ctrl-/: preview)" "ctrl-p")" || exit 0
 [[ -z "$out" ]] && exit 0
 
 key=""
@@ -119,6 +125,12 @@ if [[ "$type" == "W" ]]; then
   else
     goto_window "$id"
   fi
+  exit 0
+fi
+
+if [[ "$type" == "P" ]]; then
+  [[ -z "$id" ]] && exit 0
+  goto_pane "$id"
   exit 0
 fi
 
