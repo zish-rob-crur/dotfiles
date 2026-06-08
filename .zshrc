@@ -265,14 +265,6 @@ add-zsh-hook chpwd load-nvmrc
 load-nvmrc
 
 autoload -U add-zsh-hook
-conda_auto_activate() {
-    if [ -e ".condaenv" ]; then
-        ENV_NAME=$(cat .condaenv)
-        conda activate "$ENV_NAME"
-    fi
-}
-add-zsh-hook chpwd conda_auto_activate 
-conda_auto_activate
 
 
 add_to_pythonpath() {
