@@ -9,7 +9,7 @@ window-padding-balance = true
 theme = dark:Flexoki Dark,light:Github Light High Contrast
 
 # Background (性能友好一些)
-background-opacity = 0.93
+background-opacity = 0.96
 background-blur = 16
 background-opacity-cells = true
 
