@@ -354,10 +354,10 @@ esac
 # >>> My Lias >>>
 alias python="python3"
 if command -v exa &> /dev/null; then
-    alias ls="exa"
+    alias ls="exa -a"
 fi
 if command -v eza &> /dev/null; then
-    alias ls="eza"
+    alias ls="eza -a"
 fi
 if command -v rg &> /dev/null; then
     alias grep="rg"

@@ -20,7 +20,11 @@ fi
 
 if [[ "$type" == "P" ]]; then
   pane_id="$id"
-  tmux capture-pane -ep -t "${session}:${pane_id}" -S -80 2>/dev/null || true
+  if [[ "$pane_id" == %* ]]; then
+    tmux capture-pane -ep -t "${pane_id}" -S -80 2>/dev/null || true
+  else
+    tmux capture-pane -ep -t "${session}:${pane_id}" -S -80 2>/dev/null || true
+  fi
   exit 0
 fi
 

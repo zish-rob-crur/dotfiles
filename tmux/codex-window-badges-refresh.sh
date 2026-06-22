@@ -16,11 +16,20 @@ state_path_for_pane() {
   printf '%s/pane-%s.json' "${STATE_DIR}" "${1#%}"
 }
 
-is_codex_command() {
+is_agent_pane() {
+  local command title
+  command=${1:-}
+  title=${2:-}
+
   case "${1:-}" in
-    codex|codex-*) return 0 ;;
-    *) return 1 ;;
+    codex|codex-*|claude|claude-*) return 0 ;;
   esac
+
+  if [[ "${command}" =~ ^[0-9]+[.][0-9]+[.][0-9]+$ && "${title}" == "✳ "* ]]; then
+    return 0
+  fi
+
+  return 1
 }
 
 is_running_title() {
@@ -166,7 +175,7 @@ main() {
 
   while IFS=$'\t' read -r window_id pane_id pane_cmd pane_title; do
     [[ -n "${window_id}" && -n "${pane_id}" ]] || continue
-    is_codex_command "${pane_cmd}" || continue
+    is_agent_pane "${pane_cmd}" "${pane_title}" || continue
 
     if is_running_title "${pane_title}"; then
       running_windows=$(append_unique_token "${running_windows}" "${window_id}")
@@ -203,10 +212,12 @@ EOF
 }
 
 run_daemon() {
-  local lock_dir pid
+  local lock_dir pid digest_path old_digest script_digest
 
   mkdir -p "${STATE_DIR}"
   lock_dir="${STATE_DIR}/.refresh-daemon.lock"
+  digest_path="${lock_dir}/script-sha256"
+  script_digest=$(shasum -a 256 "$0" 2>/dev/null | awk '{print $1}' || true)
 
   if ! mkdir "${lock_dir}" 2>/dev/null; then
     pid=""
@@ -214,13 +225,25 @@ run_daemon() {
       IFS= read -r pid < "${lock_dir}/pid" || pid=""
     fi
     if [[ -n "${pid}" ]] && kill -0 "${pid}" >/dev/null 2>&1; then
-      exit 0
+      old_digest=""
+      if [[ -f "${digest_path}" ]]; then
+        IFS= read -r old_digest < "${digest_path}" || old_digest=""
+      fi
+      if [[ -n "${script_digest}" && "${old_digest}" != "${script_digest}" ]]; then
+        kill "${pid}" >/dev/null 2>&1 || true
+        sleep 0.2
+      else
+        exit 0
+      fi
     fi
     rm -rf "${lock_dir}"
     mkdir "${lock_dir}" 2>/dev/null || exit 0
   fi
 
   printf '%s\n' "$$" > "${lock_dir}/pid"
+  if [[ -n "${script_digest}" ]]; then
+    printf '%s\n' "${script_digest}" > "${digest_path}"
+  fi
   cleanup_daemon() {
     rm -rf "${lock_dir}"
   }

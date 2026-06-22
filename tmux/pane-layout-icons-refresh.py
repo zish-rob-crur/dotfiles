@@ -22,10 +22,12 @@ DAEMON_INTERVAL = float(os.environ.get("TMUX_PANE_LAYOUT_DAEMON_INTERVAL", "2"))
 SHELL_ICON = ""
 GRID_ICON = ""
 CODEX_ICON = ""
+CLAUDE_ICON = "✳"
 SHELL_LIST_ICON = "·"
 
 SHELL_COMMANDS = {"sh", "zsh", "bash", "fish", "tmux"}
 PRIORITY_ICONS = [
+    CLAUDE_ICON,  # Claude Code
     CODEX_ICON,  # Codex
     "",  # Vim / Neovim
     "",  # Git
@@ -51,6 +53,7 @@ class Pane:
     width: int
     height: int
     command: str
+    title: str
     path: str
 
     @property
@@ -63,7 +66,7 @@ class Pane:
 
     @property
     def icon(self) -> str:
-        return icon_for_command(self.command)
+        return icon_for_pane(self.command, self.title, self.path)
 
 
 def tmux(args: list[str], check: bool = False) -> str:
@@ -87,6 +90,8 @@ def icon_for_command(command: str) -> str:
 
     if command.startswith("codex"):
         return CODEX_ICON
+    if command.startswith("claude"):
+        return CLAUDE_ICON
 
     if command in {"nvim", "vim", "vi"}:
         return ""
@@ -124,6 +129,32 @@ def icon_for_command(command: str) -> str:
         return ""
 
     return SHELL_ICON
+
+
+def is_claude_pane(command: str, title: str, path: str) -> bool:
+    command = normalize_command(command)
+
+    if command.startswith("claude"):
+        return True
+
+    # Claude Code's native build can expose its version as pane_current_command
+    # while setting a title like "✳ task summary".
+    if title.startswith("✳ ") and re_fullmatch_version(command):
+        return True
+
+    return "/claude-envs/" in path
+
+
+def re_fullmatch_version(command: str) -> bool:
+    parts = command.split(".")
+    return len(parts) == 3 and all(part.isdigit() for part in parts)
+
+
+def icon_for_pane(command: str, title: str = "", path: str = "") -> str:
+    if is_claude_pane(command, title, path):
+        return CLAUDE_ICON
+
+    return icon_for_command(command)
 
 
 def important_icon(panes: list[Pane]) -> str:
@@ -215,6 +246,7 @@ def list_panes() -> dict[str, list[Pane]]:
             "#{pane_width}",
             "#{pane_height}",
             "#{pane_current_command}",
+            "#{pane_title}",
             "#{pane_current_path}",
         ]
     )
@@ -224,11 +256,11 @@ def list_panes() -> dict[str, list[Pane]]:
     for line in output.splitlines():
         if not line:
             continue
-        parts = line.split(TAB, 8)
-        if len(parts) != 9:
+        parts = line.split(TAB, 9)
+        if len(parts) != 10:
             continue
 
-        window_id, pane_id, active, left, top, width, height, command, path = parts
+        window_id, pane_id, active, left, top, width, height, command, title, path = parts
         try:
             pane = Pane(
                 window_id=window_id,
@@ -239,6 +271,7 @@ def list_panes() -> dict[str, list[Pane]]:
                 width=int(width),
                 height=int(height),
                 command=command,
+                title=title,
                 path=path,
             )
         except ValueError:
