@@ -108,6 +108,7 @@ link_path "${DOTFILES_DIR}/.zshrc" "${HOME}/.zshrc"
 link_path "${DOTFILES_DIR}/.p10k.zsh" "${HOME}/.p10k.zsh"
 link_path "${DOTFILES_DIR}/.ideavimrc" "${HOME}/.ideavimrc"
 link_path "${DOTFILES_DIR}/vim/.vimrc" "${HOME}/.vimrc"
+link_path "${DOTFILES_DIR}/git/.gitconfig" "${HOME}/.gitconfig"
 link_path "${DOTFILES_DIR}/tmux/.tmux.conf" "${HOME}/.tmux.conf"
 
 # XDG configs

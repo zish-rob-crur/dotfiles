@@ -15,6 +15,7 @@
 - `~/.p10k.zsh` -> `dotfiles/.p10k.zsh`
 - `~/.ideavimrc` -> `dotfiles/.ideavimrc`
 - `~/.vimrc` -> `dotfiles/vim/.vimrc`
+- `~/.gitconfig` -> `dotfiles/git/.gitconfig`
 - `~/.tmux.conf` -> `dotfiles/tmux/.tmux.conf`
 - `~/.config/alacritty/alacritty.toml` -> `dotfiles/alacritty/alacritty.toml`
 - `~/.config/btop/themes` -> `dotfiles/btop/themes`

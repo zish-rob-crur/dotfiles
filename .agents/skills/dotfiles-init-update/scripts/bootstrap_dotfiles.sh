@@ -100,6 +100,7 @@ ensure_dotfiles_links() {
   link_path "${repo}/.p10k.zsh" "${HOME}/.p10k.zsh"
   link_path "${repo}/.ideavimrc" "${HOME}/.ideavimrc"
   link_path "${repo}/vim/.vimrc" "${HOME}/.vimrc"
+  link_path "${repo}/git/.gitconfig" "${HOME}/.gitconfig"
   link_path "${repo}/tmux/.tmux.conf" "${HOME}/.tmux.conf"
   link_path "${repo}/alacritty/alacritty.toml" "${HOME}/.config/alacritty/alacritty.toml"
   link_path "${repo}/btop/themes" "${HOME}/.config/btop/themes"

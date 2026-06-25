@@ -1,20 +1,18 @@
 # Optional delta config for machines that have delta installed.
-# Include this from ~/.gitconfig.local when the machine should use the light diff theme.
+# Kept under the old file name for existing ~/.gitconfig.local includes.
+# The pager script chooses a light or dark theme from the macOS appearance.
 
 [core]
-    pager = delta
+    pager = ~/GitHubRepos/dotfiles/git/delta-auto.sh
 
 [interactive]
-    diffFilter = delta --color-only
+    diffFilter = ~/GitHubRepos/dotfiles/git/delta-auto.sh --color-only
 
 [delta]
     navigate = true
-    light = true
     side-by-side = true
     hyperlinks = true
     line-number = true
-    syntax-theme = GitHub
-    features = github-light-primer
 
 [delta "github-light-primer"]
     file-style = bold "#0969DA"
@@ -33,3 +31,21 @@
     plus-non-emph-style = syntax "#DAFBE1"
     plus-emph-style = syntax bold "#ACEEBB"
     whitespace-error-style = reverse "#CF222E"
+
+[delta "everforest-dark"]
+    file-style = bold "#7FBBB3"
+    hunk-header-style = file line-number bold "#859289" "#343F44"
+    hunk-header-file-style = bold "#7FBBB3"
+    hunk-header-line-number-style = "#859289"
+    line-numbers-left-style = "#859289"
+    line-numbers-right-style = "#859289"
+    line-numbers-minus-style = "#E67E80"
+    line-numbers-plus-style = "#A7C080"
+    line-numbers-zero-style = "#859289"
+    minus-style = syntax "#514045"
+    minus-non-emph-style = syntax "#514045"
+    minus-emph-style = syntax bold "#59464C"
+    plus-style = syntax "#425047"
+    plus-non-emph-style = syntax "#425047"
+    plus-emph-style = syntax bold "#48584E"
+    whitespace-error-style = reverse "#E67E80"

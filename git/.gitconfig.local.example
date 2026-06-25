@@ -1,7 +1,7 @@
 # Machine-specific Git config example.
 # Keep this file out of the repo as ~/.gitconfig.local and edit values per machine.
 
-# Uncomment on machines where delta is installed and you want the shared light diff theme.
+# Uncomment on machines where delta is installed and you want the shared auto light/dark diff theme.
 [include]
     path = ~/GitHubRepos/dotfiles/git/.gitconfig.delta-light
 
