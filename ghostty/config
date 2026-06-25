@@ -6,12 +6,12 @@ window-padding-y = 1
 window-padding-balance = true
 
 # Theme: auto light/dark
-theme = dark:Flexoki Dark,light:Github Light High Contrast
+theme = dark:Everforest Dark Hard,light:GitHub Light Default
 
-# Background (性能友好一些)
-background-opacity = 0.96
-background-blur = 16
-background-opacity-cells = true
+# Background
+background-opacity = 1
+background-blur = 0
+background-opacity-cells = false
 
 # Split focus（让当前分栏更突出）
 # 取值范围 0.15 ~ 1，越小未聚焦分栏越“暗”
@@ -45,7 +45,9 @@ right-click-action = copy-or-paste
 confirm-close-surface = true
 
 shell-integration = detect
-shell-integration-features = ssh-env,ssh-terminfo
+shell-integration-features = cursor,no-sudo,title,path
+# Prefer the widely available terminfo name for SSH compatibility.
+term = xterm-256color
 
 window-inherit-working-directory = true
 # 128 MiB / surface
