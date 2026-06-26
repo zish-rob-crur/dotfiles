@@ -222,6 +222,7 @@ link_path "${DOTFILES_REPO}/git/.gitconfig" "${HOME}/.gitconfig"
 link_path "${DOTFILES_REPO}/tmux/.tmux.conf" "${HOME}/.tmux.conf"
 link_path "${DOTFILES_REPO}/alacritty/alacritty.toml" "${HOME}/.config/alacritty/alacritty.toml"
 link_path "${DOTFILES_REPO}/btop/themes" "${HOME}/.config/btop/themes"
+link_path "${DOTFILES_REPO}/bin/nvim-agent" "${HOME}/.local/bin/nvim-agent"
 link_path "${DOTFILES_REPO}/fzf_scripts/ssh-fzf.sh" "${HOME}/.local/bin/ssh-fzf"
 
 if [ "$(uname -s)" = "Darwin" ]; then

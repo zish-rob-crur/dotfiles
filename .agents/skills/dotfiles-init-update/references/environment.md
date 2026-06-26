@@ -22,6 +22,7 @@
 - `~/.config/ghostty/config` -> `dotfiles/ghostty/config` on macOS
 - `~/.config/ghostty/shaders/unfocused_mute.glsl` -> `dotfiles/ghostty/shaders/unfocused_mute.glsl` on macOS
 - `~/.config/karabiner/karabiner.json` -> `dotfiles/karabiner/karabiner.json` on macOS only
+- `~/.local/bin/nvim-agent` -> `dotfiles/bin/nvim-agent`
 - `~/.local/bin/ssh-fzf` -> `dotfiles/fzf_scripts/ssh-fzf.sh`
 - `~/.config/nvim` -> `AstroNvim repo`
 

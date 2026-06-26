@@ -1,0 +1,44 @@
+#!/bin/sh
+
+detect_agent_from_parents() {
+    pid="$PPID"
+
+    while [ -n "$pid" ] && [ "$pid" -gt 1 ] 2>/dev/null; do
+        cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+
+        case "$cmd" in
+            *claude*)
+                printf '%s\n' "claude"
+                return 0
+                ;;
+            *codex*)
+                printf '%s\n' "codex"
+                return 0
+                ;;
+        esac
+
+        pid="$(ps -p "$pid" -o ppid= 2>/dev/null | tr -d '[:space:]')"
+        case "$pid" in
+            ''|*[!0-9]*)
+                break
+                ;;
+        esac
+    done
+}
+
+agent="${DOTAGENT_AGENT:-$(detect_agent_from_parents)}"
+
+case "$agent" in
+    claude|claude-code)
+        export DOTAGENT_EDITOR_PROMPT="${DOTAGENT_EDITOR_PROMPT:-1}"
+        export DOTAGENT_AGENT="claude"
+        export DOTAGENT_PREFIX="${DOTAGENT_PREFIX:-/}"
+        ;;
+    codex)
+        export DOTAGENT_EDITOR_PROMPT="${DOTAGENT_EDITOR_PROMPT:-1}"
+        export DOTAGENT_AGENT="codex"
+        export DOTAGENT_PREFIX="${DOTAGENT_PREFIX:-\$}"
+        ;;
+esac
+
+exec "${NVIM_AGENT_NVIM:-nvim}" "$@"

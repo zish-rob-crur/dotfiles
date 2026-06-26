@@ -367,7 +367,12 @@ if command -v nvim &> /dev/null; then
 fi
 # <<< Alias
 
-if command -v nvim &>/dev/null; then
+_dotfiles_agent_editor="$HOME/.local/bin/nvim-agent"
+if [ -x "$_dotfiles_agent_editor" ]; then
+  export EDITOR="$_dotfiles_agent_editor"
+  export VISUAL="$_dotfiles_agent_editor"
+  export ZVM_VI_EDITOR="$_dotfiles_agent_editor"
+elif command -v nvim &>/dev/null; then
   export EDITOR="nvim"
   export VISUAL="nvim"
   export ZVM_VI_EDITOR="nvim"
@@ -376,6 +381,7 @@ else
   export VISUAL="vim"
   export ZVM_VI_EDITOR="vim"
 fi
+unset _dotfiles_agent_editor
 
 export HOSTNAME=$(hostname)
 
