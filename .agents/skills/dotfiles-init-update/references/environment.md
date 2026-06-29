@@ -28,7 +28,9 @@
 
 ## Managed tmux helpers
 
+- `<prefix> + M-a` launches `dotfiles/tmux/assistant-launcher.sh` in a popup for temporary Codex/Claude sessions, with foreground and background choices.
 - `<prefix> + A` restarts saved Codex/Claude Code panes through `dotfiles/tmux/restart-assistant-panes.py`.
+- The assistant launcher starts all Codex/Claude sessions in YOLO/bypass-permissions mode. It uses Codex `model_reasoning_effort`, Claude `--effort`, Claude native `--bg`, and Codex `exec` in a detached tmux window for background tasks.
 - The restart helper depends on the Codex and Claude tmux state caches under `~/.cache/codex-tmux-status` and `~/.cache/claude-tmux-status`.
 - Panes without a saved resume id are intentionally skipped to avoid replacing existing context with a new session.
 
@@ -45,6 +47,7 @@
 - `readlink ~/.zshrc`
 - `readlink ~/.config/ghostty/config` on macOS
 - `test -d ~/.tmux/plugins/tpm`
+- `test -x ~/GitHubRepos/dotfiles/tmux/assistant-launcher.sh`
 - `test -x ~/GitHubRepos/dotfiles/tmux/restart-assistant-panes.py`
 - `tmux source-file -n ~/.tmux.conf` when tmux is available
 

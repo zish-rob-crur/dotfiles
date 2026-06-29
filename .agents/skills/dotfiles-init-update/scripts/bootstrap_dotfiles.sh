@@ -127,6 +127,7 @@ ensure_dotfiles_links() {
     link_path "${repo}/karabiner/karabiner.json" "${HOME}/.config/karabiner/karabiner.json"
   fi
   link_path "${repo}/fzf_scripts/ssh-fzf.sh" "${HOME}/.local/bin/ssh-fzf"
+  ensure_executable "${repo}/tmux/assistant-launcher.sh"
   ensure_executable "${repo}/tmux/restart-assistant-panes.py"
 }
 

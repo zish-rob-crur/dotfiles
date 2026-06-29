@@ -240,6 +240,7 @@ link_path "${DOTFILES_REPO}/alacritty/alacritty.toml" "${HOME}/.config/alacritty
 link_path "${DOTFILES_REPO}/btop/themes" "${HOME}/.config/btop/themes"
 link_path "${DOTFILES_REPO}/bin/nvim-agent" "${HOME}/.local/bin/nvim-agent"
 link_path "${DOTFILES_REPO}/fzf_scripts/ssh-fzf.sh" "${HOME}/.local/bin/ssh-fzf"
+ensure_executable "${DOTFILES_REPO}/tmux/assistant-launcher.sh"
 ensure_executable "${DOTFILES_REPO}/tmux/restart-assistant-panes.py"
 
 if [ "$(uname -s)" = "Darwin" ]; then
