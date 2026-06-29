@@ -27,6 +27,8 @@ Bootstrap and refresh zish local shell/editor/tmux config from the personal dotf
    - `readlink ~/.tmux.conf`
    - `readlink ~/.zshrc`
    - `test -d ~/.tmux/plugins/tpm`
+   - `test -x ~/GitHubRepos/dotfiles/tmux/restart-assistant-panes.py`
+   - `tmux source-file -n ~/.tmux.conf` when tmux is available
    - `readlink ~/.config/ghostty/config` on macOS
 7. Report any skipped repo updates. The script intentionally refuses to `pull --ff-only` on dirty repos.
 
@@ -37,6 +39,7 @@ Bootstrap and refresh zish local shell/editor/tmux config from the personal dotf
 - Do not delete `~/.local/share/nvim`, `~/.local/state/nvim`, or other Neovim caches unless the user explicitly asks for a clean reset.
 - Backup conflicting files and directories by renaming them with a timestamp suffix before creating a managed symlink.
 - Keep personal/project skills in `dotfiles/.agents/skills`.
+- Treat `<prefix> + A` as the managed tmux shortcut for restarting saved Codex/Claude Code panes after account or environment changes.
 - Stop if an expected repo path already exists but is not a git repository. Do not overwrite unknown directories.
 - For package-manager work such as `brew install` or `apt install`, prefer the repo's existing platform bootstrap scripts only when the user explicitly wants package installation. This skill's bundled script focuses on repo sync, symlinks, TPM, Ghostty, and AstroNvim.
 

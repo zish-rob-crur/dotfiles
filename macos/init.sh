@@ -33,6 +33,23 @@ link_path() {
     echo "Linked: ${dst} -> ${src}"
 }
 
+ensure_executable() {
+    local path="$1"
+
+    if [ ! -e "${path}" ]; then
+        echo "Skip executable (not found): ${path}"
+        return 0
+    fi
+
+    if [ -x "${path}" ]; then
+        echo "Executable already set: ${path}"
+        return 0
+    fi
+
+    chmod +x "${path}"
+    echo "Executable: ${path}"
+}
+
 install_font() {
     local src="$1"
     local dst="$2"
@@ -121,5 +138,6 @@ install_font "${DOTFILES_DIR}/fonts/CodexStatusSymbols.ttf" "${HOME}/Library/Fon
 
 # Helper scripts
 link_path "${DOTFILES_DIR}/fzf_scripts/ssh-fzf.sh" "${HOME}/.local/bin/ssh-fzf"
+ensure_executable "${DOTFILES_DIR}/tmux/restart-assistant-panes.py"
 
 install_tpm

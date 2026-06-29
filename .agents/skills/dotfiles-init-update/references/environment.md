@@ -26,6 +26,12 @@
 - `~/.local/bin/ssh-fzf` -> `dotfiles/fzf_scripts/ssh-fzf.sh`
 - `~/.config/nvim` -> `AstroNvim repo`
 
+## Managed tmux helpers
+
+- `<prefix> + A` restarts saved Codex/Claude Code panes through `dotfiles/tmux/restart-assistant-panes.py`.
+- The restart helper depends on the Codex and Claude tmux state caches under `~/.cache/codex-tmux-status` and `~/.cache/claude-tmux-status`.
+- Panes without a saved resume id are intentionally skipped to avoid replacing existing context with a new session.
+
 ## Mode guidance
 
 - `init`: Clone missing repos, update dotfiles submodules, install TPM if missing, and create/repair the managed symlinks.
@@ -39,6 +45,8 @@
 - `readlink ~/.zshrc`
 - `readlink ~/.config/ghostty/config` on macOS
 - `test -d ~/.tmux/plugins/tpm`
+- `test -x ~/GitHubRepos/dotfiles/tmux/restart-assistant-panes.py`
+- `tmux source-file -n ~/.tmux.conf` when tmux is available
 
 ## Existing repo notes
 

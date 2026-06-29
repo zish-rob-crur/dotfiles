@@ -93,6 +93,23 @@ link_path() {
   run ln -s "$src" "$dst"
 }
 
+ensure_executable() {
+  local path="$1"
+
+  if [ ! -e "$path" ]; then
+    log "Skip missing executable: ${path}"
+    return 0
+  fi
+
+  if [ -x "$path" ]; then
+    log "Executable already set: ${path}"
+    return 0
+  fi
+
+  log "Make executable: ${path}"
+  run chmod +x "$path"
+}
+
 ensure_dotfiles_links() {
   local repo="$1"
 
@@ -110,6 +127,7 @@ ensure_dotfiles_links() {
     link_path "${repo}/karabiner/karabiner.json" "${HOME}/.config/karabiner/karabiner.json"
   fi
   link_path "${repo}/fzf_scripts/ssh-fzf.sh" "${HOME}/.local/bin/ssh-fzf"
+  ensure_executable "${repo}/tmux/restart-assistant-panes.py"
 }
 
 ensure_tpm() {

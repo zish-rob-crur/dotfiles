@@ -281,8 +281,7 @@ add_to_pythonpath() {
 }
 alias addpy='add_to_pythonpath'
 
-# 保留 Ghostty shell integration 注入的 ssh wrapper；它会处理 xterm-ghostty
-# 的 terminfo 安装和 TERM 降级逻辑。
+# 保留 Ghostty shell integration 注入的 ssh wrapper。
 if (( $+functions[ssh] )) && (( ! $+functions[_dotfiles_ssh_original] )) && [[ ${functions[ssh]} != *"_dotfiles_ssh_original"* ]]; then
   functions -c ssh _dotfiles_ssh_original
 fi
@@ -295,15 +294,9 @@ ssh() {
   fi
   if [[ $1 == gpu-* ]]; then
     echo "connecting to gpu using tssh"
-    if [[ $TERM == xterm-ghostty ]]; then
-      TERM=xterm-256color tssh "${1#ssh-}" "${@:2}"
-    else
-      tssh "${1#ssh-}" "${@:2}"
-    fi
+    tssh "${1#ssh-}" "${@:2}"
   elif (( $+functions[_dotfiles_ssh_original] )); then
     _dotfiles_ssh_original "$@"
-  elif [[ $TERM == xterm-ghostty ]]; then
-    TERM=xterm-256color command ssh "$@"
   else
     command ssh "$@"
   fi
