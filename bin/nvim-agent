@@ -26,6 +26,44 @@ detect_agent_from_parents() {
     done
 }
 
+capture_shell_context() {
+    case "${DOTAGENT_AGENT:-}" in
+        claude|codex)
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+
+    [ -z "${NVIM_PRE_SHELL_CONTEXT:-}" ] || return 0
+    [ "${NVIM_AGENT_SHELL_CONTEXT:-1}" != "0" ] || return 0
+    [ -n "${TMUX:-}" ] || return 0
+    command -v tmux >/dev/null 2>&1 || return 0
+
+    lines="${NVIM_AGENT_SHELL_CONTEXT_LINES:-200}"
+    case "$lines" in
+        ''|*[!0-9]*)
+            lines=200
+            ;;
+    esac
+
+    context_file="$(mktemp "${TMPDIR:-/tmp}/nvim-shell-context.XXXXXX" 2>/dev/null)" || return 0
+    target="${NVIM_AGENT_TMUX_PANE:-${TMUX_PANE:-}}"
+
+    if [ -n "$target" ]; then
+        tmux capture-pane -p -J -S "-$lines" -t "$target" >"$context_file" 2>/dev/null || true
+    else
+        tmux capture-pane -p -J -S "-$lines" >"$context_file" 2>/dev/null || true
+    fi
+
+    if [ -s "$context_file" ]; then
+        export NVIM_PRE_SHELL_CONTEXT="$context_file"
+        export NVIM_PRE_SHELL_CONTEXT_DELETE=1
+    else
+        rm -f "$context_file"
+    fi
+}
+
 agent="${DOTAGENT_AGENT:-$(detect_agent_from_parents)}"
 
 case "$agent" in
@@ -40,5 +78,7 @@ case "$agent" in
         export DOTAGENT_PREFIX="${DOTAGENT_PREFIX:-\$}"
         ;;
 esac
+
+capture_shell_context
 
 exec "${NVIM_AGENT_NVIM:-nvim}" "$@"
