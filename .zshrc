@@ -245,26 +245,38 @@ export PATH="$DENO_INSTALL/bin:$PATH"
 #neovim 
 export PATH="$HOME/.local/nvim/bin:${PATH}"
 
+autoload -U add-zsh-hook
 
 load-nvmrc() {
   command -v nvm >/dev/null 2>&1 || return 0
 
-  local nvmrc_path="$PWD/.nvmrc"
+  local nvmrc_path nvm_version target_version current_version
 
-  # 检查 .nvmrc 文件是否存在并且不为空
-  if [[ -f "$nvmrc_path" && -s "$nvmrc_path" ]]; then
-    local nvm_version=$(<"$nvmrc_path")
+  if (( $+functions[nvm_find_nvmrc] )); then
+    nvmrc_path="$(nvm_find_nvmrc 2>/dev/null)"
+  else
+    nvmrc_path="$PWD/.nvmrc"
+  fi
 
-    # 检查当前使用的 Node 版本是否与 .nvmrc 文件中指定的版本相同
-    if [[ "$(nvm current)" != "$nvm_version" ]]; then
-      nvm use
-    fi
+  [[ -n "$nvmrc_path" && -s "$nvmrc_path" ]] || return 0
+
+  IFS= read -r nvm_version < "$nvmrc_path" || return 0
+  nvm_version="${nvm_version%%#*}"
+  nvm_version="${nvm_version#"${nvm_version%%[![:space:]]*}"}"
+  nvm_version="${nvm_version%"${nvm_version##*[![:space:]]}"}"
+  [[ -n "$nvm_version" ]] || return 0
+
+  target_version="$(nvm version "$nvm_version" 2>/dev/null || true)"
+  current_version="$(nvm current 2>/dev/null || true)"
+
+  if [[ -z "$target_version" || "$target_version" == "N/A" ]]; then
+    nvm use "$nvm_version"
+  elif [[ "$current_version" != "$target_version" ]]; then
+    nvm use --silent "$nvm_version"
   fi
 }
 add-zsh-hook chpwd load-nvmrc
 load-nvmrc
-
-autoload -U add-zsh-hook
 
 
 add_to_pythonpath() {
