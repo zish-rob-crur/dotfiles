@@ -103,6 +103,8 @@ tmux set -g window-style "bg=default"
 tmux set -g window-active-style "bg=default"
 tmux set -g pane-border-style "fg=${bg2},bg=default"
 tmux set -g pane-active-border-style "fg=${accent},bg=default,bold"
+tmux set -g @zish-pane-label-active-style "fg=${accent},bg=default,bold"
+tmux set -g @zish-pane-label-inactive-style "fg=${fg},bg=default"
 tmux set -g display-panes-colour "${muted}"
 tmux set -g display-panes-active-colour "${accent}"
 

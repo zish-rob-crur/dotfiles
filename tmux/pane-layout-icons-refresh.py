@@ -24,6 +24,8 @@ GRID_ICON = ""
 CODEX_ICON = ""
 CLAUDE_ICON = "✳"
 SHELL_LIST_ICON = "·"
+ELLIPSIS = "…"
+SPINNER_PREFIXES = tuple(f"{char} " for char in "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⠐")
 
 SHELL_COMMANDS = {"sh", "zsh", "bash", "fish", "tmux"}
 PRIORITY_ICONS = [
@@ -222,6 +224,90 @@ def render_window_icon(panes: list[Pane]) -> str:
     return icon
 
 
+def collapse(value: str) -> str:
+    return " ".join(value.split())
+
+
+def display_basename(path: str) -> str:
+    if not path:
+        return "~"
+
+    expanded = os.path.expanduser(path)
+    if os.path.realpath(expanded) == os.path.realpath(str(Path.home())):
+        return "~"
+
+    return os.path.basename(expanded.rstrip(os.sep)) or expanded
+
+
+def truncate(value: str, limit: int) -> str:
+    value = collapse(value)
+    if limit <= 0:
+        return ""
+    if len(value) <= limit:
+        return value
+    if limit == 1:
+        return ELLIPSIS
+    return value[: limit - 1].rstrip() + ELLIPSIS
+
+
+def clean_title(title: str, command: str) -> str:
+    title = collapse(title)
+    if not title:
+        return ""
+
+    for prefix in (CODEX_ICON, CLAUDE_ICON):
+        if title.startswith(prefix):
+            title = title[len(prefix) :].strip()
+
+    for prefix in SPINNER_PREFIXES:
+        if title.startswith(prefix):
+            title = title[len(prefix) :].strip()
+            break
+
+    command = normalize_command(command)
+    generic_titles = SHELL_COMMANDS | {"vi", "vim", "nvim", command}
+    if title.lower() in generic_titles:
+        return ""
+
+    return title
+
+
+def pane_main_text(pane: Pane) -> str:
+    title = clean_title(pane.title, pane.command)
+    if title:
+        return title
+
+    command = normalize_command(pane.command)
+    if pane.icon == CODEX_ICON:
+        return "Codex"
+    if pane.icon == CLAUDE_ICON:
+        return "Claude"
+    if command:
+        return command
+    return display_basename(pane.path)
+
+
+def render_pane_labels(pane: Pane) -> tuple[str, str]:
+    icon = pane.icon
+    basename = display_basename(pane.path)
+    main = pane_main_text(pane)
+    active_limit = max(12, min(64, pane.width - 4))
+    inactive_limit = max(8, min(34, pane.width - 4))
+
+    if main.lower() == basename.lower():
+        active = truncate(f"{icon} {main}", active_limit)
+    else:
+        active = truncate(f"{icon} {main} · {basename}", active_limit)
+
+    if icon in {CODEX_ICON, CLAUDE_ICON}:
+        inactive_main = clean_title(pane.title, pane.command) or basename
+    else:
+        inactive_main = basename
+    inactive = truncate(f"{icon} {inactive_main}", inactive_limit)
+
+    return active, inactive
+
+
 def list_old_values() -> dict[str, tuple[str, str]]:
     output = tmux(["list-windows", "-a", "-F", f"#{{window_id}}{TAB}#{{@pane-layout-signal}}{TAB}#{{@pane-window-icon}}"])
     old_values: dict[str, tuple[str, str]] = {}
@@ -232,6 +318,26 @@ def list_old_values() -> dict[str, tuple[str, str]]:
         signal, _, icon = rest.partition(TAB)
         if window_id:
             old_values[window_id] = (signal, icon)
+    return old_values
+
+
+def list_old_pane_labels() -> dict[str, tuple[str, str]]:
+    output = tmux(
+        [
+            "list-panes",
+            "-a",
+            "-F",
+            f"#{{pane_id}}{TAB}#{{@zish-pane-label-active}}{TAB}#{{@zish-pane-label-inactive}}",
+        ]
+    )
+    old_values: dict[str, tuple[str, str]] = {}
+    for line in output.splitlines():
+        if not line:
+            continue
+        pane_id, _, rest = line.partition(TAB)
+        active, _, inactive = rest.partition(TAB)
+        if pane_id:
+            old_values[pane_id] = (active, inactive)
     return old_values
 
 
@@ -307,6 +413,7 @@ def refresh(force: bool = False, print_only: bool = False) -> int:
         return 0
 
     old_values = list_old_values()
+    old_pane_labels = list_old_pane_labels()
     panes_by_window = list_panes()
     changed = 0
 
@@ -325,6 +432,18 @@ def refresh(force: bool = False, print_only: bool = False) -> int:
         if icon != old_icon:
             tmux(["set-window-option", "-q", "-t", window_id, "@pane-window-icon", icon])
             changed += 1
+
+        for pane in panes:
+            active_label, inactive_label = render_pane_labels(pane)
+            old_active, old_inactive = old_pane_labels.get(pane.pane_id, ("", ""))
+
+            if active_label != old_active:
+                tmux(["set-option", "-pq", "-t", pane.pane_id, "@zish-pane-label-active", active_label])
+                changed += 1
+
+            if inactive_label != old_inactive:
+                tmux(["set-option", "-pq", "-t", pane.pane_id, "@zish-pane-label-inactive", inactive_label])
+                changed += 1
 
     if changed:
         tmux(["refresh-client", "-S"])
