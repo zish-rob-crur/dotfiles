@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REAL_TMUX="${ASSISTANT_SPYMUX_REAL_TMUX:-tmux}"
+PREFERRED_SESSION="${ASSISTANT_SPYMUX_SESSION:-}"
+
+dedupe_list_panes() {
+  "${REAL_TMUX}" "$@" | awk -v preferred="${PREFERRED_SESSION}" '
+    function json_value(line, key, marker, rest, end) {
+      marker = "\"" key "\":\""
+      start = index(line, marker)
+      if (!start) return ""
+      rest = substr(line, start + length(marker))
+      end = index(rest, "\"")
+      if (!end) return ""
+      return substr(rest, 1, end - 1)
+    }
+
+    {
+      pane_id = json_value($0, "id")
+      session = json_value($0, "session")
+
+      if (pane_id == "") {
+        print
+        next
+      }
+
+      if (!(pane_id in line_by_pane)) {
+        order[++count] = pane_id
+        line_by_pane[pane_id] = $0
+        session_by_pane[pane_id] = session
+      }
+
+      if (preferred != "" && session == preferred && session_by_pane[pane_id] != preferred) {
+        line_by_pane[pane_id] = $0
+        session_by_pane[pane_id] = session
+      }
+    }
+
+    END {
+      for (i = 1; i <= count; i++) print line_by_pane[order[i]]
+    }
+  '
+}
+
+if [[ "${1:-}" == "list-panes" ]]; then
+  has_all=0
+  for arg in "$@"; do
+    [[ "${arg}" == "-a" ]] && has_all=1
+  done
+
+  if [[ "${has_all}" == "1" ]]; then
+    dedupe_list_panes "$@"
+    exit $?
+  fi
+fi
+
+exec "${REAL_TMUX}" "$@"

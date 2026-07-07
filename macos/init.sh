@@ -138,7 +138,9 @@ install_font "${DOTFILES_DIR}/fonts/CodexStatusSymbols.ttf" "${HOME}/Library/Fon
 
 # Helper scripts
 link_path "${DOTFILES_DIR}/fzf_scripts/ssh-fzf.sh" "${HOME}/.local/bin/ssh-fzf"
+ensure_executable "${DOTFILES_DIR}/btop/auto-theme.sh"
 ensure_executable "${DOTFILES_DIR}/tmux/assistant-launcher.sh"
+ensure_executable "${DOTFILES_DIR}/tmux/assistant-spymux.sh"
 ensure_executable "${DOTFILES_DIR}/tmux/restart-assistant-panes.py"
 
 install_tpm
