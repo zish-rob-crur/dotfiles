@@ -64,6 +64,156 @@ capture_shell_context() {
     fi
 }
 
+shell_quote() {
+    printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
+finish_tmux_child() {
+    child_status="${1:-1}"
+    trap - 0 1 2 15
+
+    if [ -n "${NVIM_AGENT_STATUS_FILE:-}" ]; then
+        printf '%s\n' "$child_status" >"$NVIM_AGENT_STATUS_FILE" 2>/dev/null || true
+    fi
+
+    if [ -n "${NVIM_AGENT_WAIT_CHANNEL:-}" ]; then
+        tmux wait-for -S "$NVIM_AGENT_WAIT_CHANNEL" >/dev/null 2>&1 || true
+    fi
+
+    exit "$child_status"
+}
+
+run_tmux_child() {
+    trap 'finish_tmux_child 129' 1
+    trap 'finish_tmux_child 130' 2
+    trap 'finish_tmux_child 143' 15
+
+    "${NVIM_AGENT_NVIM:-nvim}" "$@"
+    finish_tmux_child "$?"
+}
+
+launch_tmux_editor() {
+    nvim_agent_tmux_started=0
+
+    # Keep normal EDITOR/VISUAL calls unchanged; only agent prompt editors use tmux UI.
+    [ -n "${DOTAGENT_EDITOR_PROMPT:-}" ] || return 1
+    [ -n "${TMUX:-}" ] || return 1
+    [ -n "${TMUX_PANE:-}" ] || return 1
+    command -v tmux >/dev/null 2>&1 || return 1
+
+    # auto picks a right split on wide panes and a bottom split on narrow panes.
+    # Override with: NVIM_AGENT_LAYOUT=right|bottom|popup|current.
+    layout="${NVIM_AGENT_LAYOUT:-auto}"
+    case "$layout" in
+        auto|right|bottom|popup)
+            ;;
+        current)
+            return 1
+            ;;
+        *)
+            tmux display-message "Unknown NVIM_AGENT_LAYOUT: $layout; using auto" 2>/dev/null || true
+            layout=auto
+            ;;
+    esac
+
+    if [ "$layout" = auto ]; then
+        pane_width="$(tmux display-message -p -t "$TMUX_PANE" '#{pane_width}' 2>/dev/null || true)"
+        min_side_width="${NVIM_AGENT_MIN_SIDE_WIDTH:-140}"
+
+        case "$pane_width" in
+            ''|*[!0-9]*) pane_width=0 ;;
+        esac
+        case "$min_side_width" in
+            ''|*[!0-9]*) min_side_width=140 ;;
+        esac
+
+        if [ "$pane_width" -ge "$min_side_width" ]; then
+            layout=right
+        else
+            layout=bottom
+        fi
+    fi
+
+    status_file="$(mktemp "${TMPDIR:-/tmp}/nvim-agent-status.XXXXXX" 2>/dev/null)" || return 1
+    wait_channel="nvim-agent-$$-$(date +%s)"
+    source_pane="${NVIM_AGENT_TMUX_PANE:-$TMUX_PANE}"
+    child_wait_channel=""
+    if [ "$layout" = popup ]; then
+        child_wait_channel="$wait_channel"
+    fi
+
+    child_command=env
+    for assignment in \
+        "NVIM_AGENT_TMUX_CHILD=1" \
+        "NVIM_AGENT_WAIT_CHANNEL=$child_wait_channel" \
+        "NVIM_AGENT_STATUS_FILE=$status_file" \
+        "NVIM_AGENT_TMUX_PANE=$source_pane" \
+        "NVIM_AGENT_NVIM=${NVIM_AGENT_NVIM:-}" \
+        "DOTAGENT_EDITOR_PROMPT=${DOTAGENT_EDITOR_PROMPT:-}" \
+        "DOTAGENT_AGENT=${DOTAGENT_AGENT:-}" \
+        "DOTAGENT_PREFIX=${DOTAGENT_PREFIX:-}" \
+        "NVIM_PRE_SHELL_CONTEXT=${NVIM_PRE_SHELL_CONTEXT:-}" \
+        "NVIM_PRE_SHELL_CONTEXT_DELETE=${NVIM_PRE_SHELL_CONTEXT_DELETE:-}"
+    do
+        child_command="$child_command $(shell_quote "$assignment")"
+    done
+
+    child_command="$child_command $(shell_quote "$0")"
+    for argument in "$@"; do
+        child_command="$child_command $(shell_quote "$argument")"
+    done
+
+    case "$layout" in
+        right)
+            child_pane="$(tmux split-window -P -F '#{pane_id}' \
+                -h -l "${NVIM_AGENT_RIGHT_SIZE:-55%}" \
+                -t "$source_pane" -c '#{pane_current_path}' "$child_command")"
+            ;;
+        bottom)
+            child_pane="$(tmux split-window -P -F '#{pane_id}' \
+                -v -l "${NVIM_AGENT_BOTTOM_SIZE:-50%}" \
+                -t "$source_pane" -c '#{pane_current_path}' "$child_command")"
+            ;;
+        popup)
+            tmux display-popup -E -T "Agent editor" \
+                -w "${NVIM_AGENT_POPUP_WIDTH:-90%}" \
+                -h "${NVIM_AGENT_POPUP_HEIGHT:-85%}" \
+                -d '#{pane_current_path}' "$child_command" >/dev/null
+            ;;
+    esac
+    launch_status=$?
+
+    if [ "$launch_status" -ne 0 ]; then
+        rm -f "$status_file"
+        return 1
+    fi
+
+    nvim_agent_tmux_started=1
+    if [ "$layout" = popup ]; then
+        if ! tmux wait-for "$wait_channel"; then
+            rm -f "$status_file"
+            return 1
+        fi
+    else
+        while [ ! -s "$status_file" ]; do
+            live_pane="$(tmux display-message -p -t "$child_pane" '#{pane_id}' 2>/dev/null || true)"
+            if [ "$live_pane" != "$child_pane" ]; then
+                rm -f "$status_file"
+                return 129
+            fi
+            sleep 0.1
+        done
+    fi
+
+    editor_status="$(sed -n '1p' "$status_file" 2>/dev/null || true)"
+    rm -f "$status_file"
+    case "$editor_status" in
+        ''|*[!0-9]*) editor_status=1 ;;
+    esac
+
+    return "$editor_status"
+}
+
 agent="${DOTAGENT_AGENT:-$(detect_agent_from_parents)}"
 
 case "$agent" in
@@ -80,5 +230,16 @@ case "$agent" in
 esac
 
 capture_shell_context
+
+if [ "${NVIM_AGENT_TMUX_CHILD:-}" = 1 ]; then
+    run_tmux_child "$@"
+fi
+
+nvim_agent_tmux_started=0
+launch_tmux_editor "$@"
+editor_status=$?
+if [ "$nvim_agent_tmux_started" = 1 ]; then
+    exit "$editor_status"
+fi
 
 exec "${NVIM_AGENT_NVIM:-nvim}" "$@"
