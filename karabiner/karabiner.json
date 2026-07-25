@@ -38,7 +38,7 @@
                         ]
                     },
                     {
-                        "description": "on escape press, send spacebar with control if not in english",
+                        "description": "On Escape, select English if the current input source is not English",
                         "manipulators": [
                             {
                                 "conditions": [
@@ -53,17 +53,14 @@
                                 },
                                 "to": [
                                     { "key_code": "escape" },
-                                    {
-                                        "key_code": "spacebar",
-                                        "modifiers": ["left_control"]
-                                    }
+                                    { "select_input_source": { "language": "^en$" } }
                                 ],
                                 "type": "basic"
                             }
                         ]
                     },
                     {
-                        "description": "on <ctrl>-c press, send spacebar with control if not in english",
+                        "description": "On left Control+C, send Escape and select English if needed",
                         "manipulators": [
                             {
                                 "conditions": [
@@ -78,10 +75,7 @@
                                 },
                                 "to": [
                                     { "key_code": "escape" },
-                                    {
-                                        "key_code": "spacebar",
-                                        "modifiers": ["left_control"]
-                                    }
+                                    { "select_input_source": { "language": "^en$" } }
                                 ],
                                 "type": "basic"
                             }
@@ -182,7 +176,7 @@
                         ]
                     },
                     {
-                        "description": "Change CapsLock to Control+Space when pressed alone and to Control when pressed with other keys, with delay to prevent double press issue",
+                        "description": "CapsLock alone toggles input source; CapsLock with another key acts as left Control",
                         "manipulators": [
                             {
                                 "from": {
@@ -190,17 +184,20 @@
                                     "modifiers": { "optional": ["any"] }
                                 },
                                 "parameters": {
-                                    "basic.to_if_alone_timeout_milliseconds": 250,
-                                    "basic.to_if_held_down_threshold_milliseconds": 250
+                                    "basic.to_if_alone_timeout_milliseconds": 250
                                 },
-                                "to": [{ "key_code": "left_control" }],
+                                "to": [
+                                    {
+                                        "key_code": "left_control",
+                                        "lazy": true
+                                    }
+                                ],
                                 "to_if_alone": [
                                     {
                                         "key_code": "spacebar",
                                         "modifiers": ["left_control"]
                                     }
                                 ],
-                                "to_if_held_down": [{ "key_code": "left_control" }],
                                 "type": "basic"
                             }
                         ]
