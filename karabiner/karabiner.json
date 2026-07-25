@@ -8,6 +8,36 @@
             "complex_modifications": {
                 "rules": [
                     {
+                        "description": "Wooting 60HE v2: Shift+Escape to tilde",
+                        "manipulators": [
+                            {
+                                "conditions": [
+                                    {
+                                        "identifiers": [
+                                            {
+                                                "is_keyboard": true,
+                                                "product_id": 4930,
+                                                "vendor_id": 12771
+                                            }
+                                        ],
+                                        "type": "device_if"
+                                    }
+                                ],
+                                "from": {
+                                    "key_code": "escape",
+                                    "modifiers": { "mandatory": ["shift"] }
+                                },
+                                "to": [
+                                    {
+                                        "key_code": "grave_accent_and_tilde",
+                                        "modifiers": ["left_shift"]
+                                    }
+                                ],
+                                "type": "basic"
+                            }
+                        ]
+                    },
+                    {
                         "description": "on escape press, send spacebar with control if not in english",
                         "manipulators": [
                             {
@@ -245,6 +275,23 @@
                         {
                             "from": { "key_code": "left_command" },
                             "to": [{ "key_code": "left_option" }]
+                        }
+                    ]
+                },
+                {
+                    "identifiers": {
+                        "is_keyboard": true,
+                        "product_id": 4930,
+                        "vendor_id": 12771
+                    },
+                    "simple_modifications": [
+                        {
+                            "from": { "key_code": "left_command" },
+                            "to": [{ "key_code": "left_option" }]
+                        },
+                        {
+                            "from": { "key_code": "left_option" },
+                            "to": [{ "key_code": "left_command" }]
                         }
                     ]
                 }
