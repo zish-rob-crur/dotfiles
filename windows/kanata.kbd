@@ -7,6 +7,9 @@
 ;; - tap -> Shift, for input method toggle
 ;; - h/j/k/l -> left/down/up/right
 ;; - letters and common editing keys -> Ctrl shortcuts
+;;
+;; tap-hold-press resolves the held layer as soon as another key is pressed,
+;; avoiding delayed Ctrl+C/Ctrl+V chords when CapsLock is remapped to LCtrl.
 
 (defcfg
   process-unmapped-keys yes
@@ -23,7 +26,7 @@
 )
 
 (defalias
-  hhkb (tap-hold 200 200 lsft (layer-while-held hhkb))
+  hhkb (tap-hold-press 200 200 lsft (layer-while-held hhkb))
 )
 
 (deflayer base

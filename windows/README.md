@@ -93,6 +93,8 @@ Start-ScheduledTask -TaskName 'Kanata HHKB Layer'
   to the corresponding `Ctrl+...` shortcut
 - `F13` and `LCtrl` have the same behavior for machines that already remap
   CapsLock before Kanata sees it
+- The tap-hold key uses `tap-hold-press` so Ctrl chords are emitted as soon as
+  the second key is pressed, avoiding a visible wait on copy/paste.
 
 Do not run the old AutoHotkey CapsLock mappings at the same time.
 
@@ -102,6 +104,9 @@ If the scheduled task is `Running` but mappings do not work, first test whether
 Kanata sees CapsLock as `caps`, `f13`, or `lctl`. This config maps all three to
 the same HHKB layer because this machine previously had CapsLock remapped before
 Kanata saw the input.
+
+If regular left `Ctrl+C` or `Ctrl+V` feels delayed, check whether the active
+config still uses plain `tap-hold`; use `tap-hold-press` for this layer.
 
 If mappings work in normal apps but not elevated apps, reinstall the startup task
 or run Kanata from an Administrator PowerShell.
