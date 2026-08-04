@@ -1,21 +1,35 @@
 #!/usr/bin/env python3
 
+from __future__ import annotations
+
 import argparse
+import ctypes
+import ctypes.util
+import fcntl
 import json
+import math
 import os
-import re
 import shlex
 import subprocess
 import sys
+from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
+from typing import Iterator, Optional
+
+from assistant_completion_state import server_state_dir
+from assistant_restore_args import (
+    build_resume_words,
+    is_uuid,
+    resolve_executable,
+    resume_id_from_words,
+)
 
 
 STATE_DIR = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))) / "codex-tmux-status"
 CLAUDE_STATE_DIR = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))) / "claude-tmux-status"
-UUID_RE = re.compile(
-    r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b"
-)
 SPINNER_PREFIXES = tuple(f"{char} " for char in "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⠐")
+PROCESS_START_GRANULARITY_SECONDS = 1.0
 
 
 def tmux(args: list[str], check: bool = True) -> str:
@@ -38,9 +52,7 @@ def command_words(command: str) -> list[str]:
 
 def command_name(command: str) -> str:
     words = command_words(command)
-    if not words:
-        return ""
-    return Path(words[0]).name
+    return Path(words[0]).name if words else ""
 
 
 def command_tool(command: str) -> str:
@@ -65,9 +77,40 @@ def load_json(path: Path) -> dict[str, object]:
     return data if isinstance(data, dict) else {}
 
 
-def state_path(pane_id: str, tool: str) -> Path:
+def state_root(tool: str) -> Path:
+    return CLAUDE_STATE_DIR if tool == "claude" else STATE_DIR
+
+
+def state_path(pane_id: str, tool: str, tmux_socket: str = "") -> Path:
     root = CLAUDE_STATE_DIR if tool == "claude" else STATE_DIR
+    namespaced = server_state_dir(root, tmux_socket)
+    if namespaced is not None:
+        root = namespaced
     return root / f"pane-{pane_id.lstrip('%')}.json"
+
+
+def state_path_candidates(pane: dict[str, str], tool: str) -> list[tuple[Path, bool]]:
+    roots = [state_root(tool)]
+    if tool == "claude":
+        roots.append(STATE_DIR)
+    namespaced = [
+        (state_path(pane["pane_id"], "claude" if root == CLAUDE_STATE_DIR else "codex", pane["socket_path"]), False)
+        for root in roots
+    ]
+    if any(path.exists() for path, _legacy in namespaced):
+        return namespaced
+    return namespaced + [
+        (root / f"pane-{pane['pane_id'].lstrip('%')}.json", True) for root in roots
+    ]
+
+
+def ambiguous_legacy_state(
+    root: Path, state: dict[str, object], tmux_socket: str
+) -> bool:
+    del root, tmux_socket
+    # A socketless legacy file cannot prove which tmux server owned a reused
+    # pane/window ID. Only legacy state carrying an explicit socket may migrate.
+    return not str(state.get("tmux_socket", state.get("socket_path", ""))).strip()
 
 
 def realpath(value: str) -> str:
@@ -79,57 +122,104 @@ def usable_dir(value: str) -> str:
     return str(path) if path.is_dir() else str(Path.home())
 
 
-def state_matches_pane(state: dict[str, object], pane: dict[str, str]) -> bool:
-    expected = {
-        "pane_id": pane["pane_id"],
-        "session_name": pane["session_name"],
-        "window_id": pane["window_id"],
-    }
-    for key, value in expected.items():
-        state_value = str(state.get(key, "")).strip()
-        if state_value and state_value != value:
-            return False
+def parse_epoch(value: object) -> Optional[float]:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        epoch = float(value)
+        if not math.isfinite(epoch):
+            return None
+        for _ in range(3):
+            if epoch <= 10_000_000_000:
+                break
+            epoch /= 1000.0
+        return epoch if 0 < epoch <= 10_000_000_000 else None
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    try:
+        return parse_epoch(float(text))
+    except ValueError:
+        pass
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+    except (ValueError, OverflowError, OSError):
+        return None
 
-    state_cwd = str(state.get("cwd", "")).strip()
-    if state_cwd and pane["path"] and realpath(state_cwd) != realpath(pane["path"]):
+
+def state_completed_epoch(state: dict[str, object]) -> Optional[float]:
+    for key in ("completed_at_ns", "completed_at"):
+        epoch = parse_epoch(state.get(key))
+        if epoch is not None:
+            return epoch
+    return None
+
+
+def state_matches_pane(
+    state: dict[str, object],
+    pane: dict[str, str],
+    tool: str,
+    process_start_epoch: Optional[float],
+) -> bool:
+    if process_start_epoch is None:
+        return False
+    if str(state.get("pane_id", "")).strip() != pane["pane_id"]:
+        return False
+    if str(state.get("window_id", "")).strip() != pane["window_id"]:
         return False
 
-    return True
+    state_cwd = str(state.get("cwd", "")).strip()
+    if not state_cwd or not pane["path"] or realpath(state_cwd) != realpath(pane["path"]):
+        return False
+
+    state_tool = str(state.get("tool", "")).strip()
+    state_source = str(state.get("source", "")).strip()
+    if state_tool and state_tool != tool:
+        return False
+    if state_source and state_source not in {tool, "codex" if tool == "codex" else "claude"}:
+        return False
+
+    state_socket = str(state.get("tmux_socket", state.get("socket_path", ""))).strip()
+    pane_socket = pane.get("socket_path", "").strip()
+    if not pane_socket:
+        return False
+    if state_socket and realpath(state_socket) != realpath(pane_socket):
+        return False
+
+    completed_epoch = state_completed_epoch(state)
+    return (
+        completed_epoch is not None
+        and completed_epoch >= process_start_epoch + PROCESS_START_GRANULARITY_SECONDS
+    )
 
 
-def uuid_from_state(state: dict[str, object], keys: list[str]) -> str:
-    for key in keys:
-        value = str(state.get(key, "")).strip()
-        match = UUID_RE.search(value)
-        if match:
-            return match.group(0)
-    return ""
+def state_resume_id(state: dict[str, object], tool: str) -> str:
+    key = "session_id" if tool == "claude" else "thread_id"
+    value = state.get(key)
+    return str(value).strip() if is_uuid(value) else ""
 
 
-def saved_session_id(tool: str, pane: dict[str, str]) -> tuple[str, str]:
-    if tool == "claude":
-        state = load_json(state_path(pane["pane_id"], "claude"))
-        if state_matches_pane(state, pane):
-            session_id = uuid_from_state(state, ["session_id"])
-            if session_id:
-                return session_id, str(state.get("cwd", "")).strip()
-
-        badge_state = load_json(state_path(pane["pane_id"], "codex"))
-        if state_matches_pane(badge_state, pane) and str(badge_state.get("source", "")).strip() == "claude":
-            session_id = uuid_from_state(badge_state, ["session_id", "thread_id", "summary"])
-            if session_id:
-                return session_id, str(badge_state.get("cwd", "")).strip()
-        return "", ""
-
-    state = load_json(state_path(pane["pane_id"], "codex"))
-    if state_matches_pane(state, pane):
-        thread_id = uuid_from_state(state, ["thread_id", "session_id", "summary"])
-        if thread_id:
-            return thread_id, str(state.get("cwd", "")).strip()
+def saved_session_id(
+    tool: str,
+    pane: dict[str, str],
+    process_start_epoch: Optional[float],
+) -> tuple[str, str]:
+    for path, legacy in state_path_candidates(pane, tool):
+        state = load_json(path)
+        if legacy and ambiguous_legacy_state(path.parent, state, pane["socket_path"]):
+            continue
+        if not state_matches_pane(state, pane, tool, process_start_epoch):
+            continue
+        if tool == "claude" and (
+            path.parent == STATE_DIR or path.parent.parent.parent == STATE_DIR
+        ):
+            if str(state.get("source", "")).strip() != "claude":
+                continue
+        session_id = state_resume_id(state, tool)
+        if session_id:
+            return session_id, str(state.get("cwd", "")).strip()
     return "", ""
 
 
-def children_by_parent() -> dict[str, list[str]]:
+def process_rows() -> list[tuple[str, str, str]]:
     try:
         output = subprocess.check_output(
             ["ps", "-axo", "pid=,ppid=,command="],
@@ -137,134 +227,174 @@ def children_by_parent() -> dict[str, list[str]]:
             stderr=subprocess.DEVNULL,
         )
     except (OSError, subprocess.CalledProcessError):
-        return {}
+        return []
 
-    children: dict[str, list[str]] = {}
+    rows: list[tuple[str, str, str]] = []
     for line in output.splitlines():
         parts = line.strip().split(None, 2)
-        if len(parts) != 3:
-            continue
-        _pid, ppid, command = parts
-        children.setdefault(ppid, []).append(command)
+        if len(parts) == 3:
+            rows.append((parts[0], parts[1], parts[2]))
+    return rows
+
+
+def children_by_parent(rows: list[tuple[str, str, str]]) -> dict[str, list[tuple[str, str]]]:
+    children: dict[str, list[tuple[str, str]]] = {}
+    for pid, ppid, command in rows:
+        children.setdefault(ppid, []).append((pid, command))
     return children
 
 
-def child_command_for_tool(pane_pid: str, children: dict[str, list[str]]) -> tuple[str, str]:
-    for command in children.get(pane_pid, []):
-        tool = command_tool(command)
-        if tool:
-            return tool, command
-    return "", ""
-
-
-def pane_tool(pane: dict[str, str], child_tool: str) -> str:
-    if child_tool:
-        return child_tool
-
+def pane_tool(pane: dict[str, str]) -> str:
     tool = command_tool(pane["command"])
     if tool:
         return tool
-
-    if "/claude-envs/" in pane["path"]:
+    if is_version_name(pane["command"]) and (
+        pane["title"].startswith("✳ ") or pane["title"].startswith(SPINNER_PREFIXES)
+    ):
         return "claude"
-
-    if is_version_name(pane["command"]) and (pane["title"].startswith("✳ ") or pane["title"].startswith(SPINNER_PREFIXES)):
-        return "claude"
-
     return ""
 
 
-def resume_id_from_command(tool: str, command: str) -> str:
-    words = command_words(command)
-    if tool == "claude":
-        for index, word in enumerate(words):
-            if word in {"--resume", "-r"} and index + 1 < len(words):
-                match = UUID_RE.fullmatch(words[index + 1])
-                if match:
-                    return match.group(0)
-            if word.startswith("--resume="):
-                match = UUID_RE.fullmatch(word.split("=", 1)[1])
-                if match:
-                    return match.group(0)
-        return ""
-
-    for index, word in enumerate(words[:-1]):
-        if word == "resume":
-            match = UUID_RE.fullmatch(words[index + 1])
-            if match:
-                return match.group(0)
-    return ""
-
-
-def capture_resume_id(tool: str, pane_id: str) -> str:
+def _darwin_process_argv(pid: int) -> list[str]:
+    library_name = ctypes.util.find_library("c")
+    if not library_name:
+        return []
     try:
-        text = tmux(["capture-pane", "-p", "-J", "-t", pane_id, "-S", "-2000"], check=True)
-    except subprocess.CalledProcessError:
+        libc = ctypes.CDLL(library_name, use_errno=True)
+        mib = (ctypes.c_int * 3)(1, 49, pid)  # CTL_KERN, KERN_PROCARGS2, pid
+        size = ctypes.c_size_t(0)
+        if (
+            libc.sysctl(mib, 3, None, ctypes.byref(size), None, 0) != 0
+            or size.value <= 4
+        ):
+            return []
+        buffer = ctypes.create_string_buffer(size.value)
+        if libc.sysctl(mib, 3, buffer, ctypes.byref(size), None, 0) != 0:
+            return []
+    except (AttributeError, OSError, ValueError):
+        return []
+
+    raw = buffer.raw[: size.value]
+    argc = int.from_bytes(raw[:4], byteorder=sys.byteorder, signed=True)
+    if argc <= 0 or argc > 100_000:
+        return []
+    offset = raw.find(b"\0", 4)
+    if offset < 0:
+        return []
+    offset += 1
+    while offset < len(raw) and raw[offset] == 0:
+        offset += 1
+
+    argv: list[str] = []
+    for _ in range(argc):
+        end = raw.find(b"\0", offset)
+        if end < 0:
+            return []
+        argv.append(raw[offset:end].decode("utf-8", errors="surrogateescape"))
+        offset = end + 1
+    return argv
+
+
+def process_argv(pid: str) -> list[str]:
+    if not pid.isdigit():
+        return []
+    proc_path = Path(f"/proc/{pid}/cmdline")
+    try:
+        if proc_path.is_file():
+            raw = proc_path.read_bytes()
+            return [
+                part.decode("utf-8", errors="surrogateescape")
+                for part in raw.split(b"\0")
+                if part
+            ]
+    except OSError:
+        return []
+    if sys.platform == "darwin":
+        return _darwin_process_argv(int(pid))
+    return []
+
+
+def words_tool(words: list[str]) -> str:
+    if not words:
         return ""
-
-    patterns = [
-        re.compile(r"\bcodex\s+resume\s+(" + UUID_RE.pattern.strip(r"\b") + r")\b"),
-        re.compile(r"\bclaude\s+(?:--resume|-r)\s+(" + UUID_RE.pattern.strip(r"\b") + r")\b"),
-        re.compile(r"\b--resume[= ](" + UUID_RE.pattern.strip(r"\b") + r")\b"),
-    ]
-    if tool == "codex":
-        patterns = patterns[:1]
-    elif tool == "claude":
-        patterns = patterns[1:]
-
-    for pattern in patterns:
-        matches = pattern.findall(text)
-        if matches:
-            return matches[-1]
+    name = Path(words[0]).name
+    if name == "codex" or name.startswith("codex-"):
+        return "codex"
+    if name == "claude" or name.startswith("claude-"):
+        return "claude"
+    if is_version_name(name) and "/claude/versions/" in words[0]:
+        return "claude"
     return ""
 
 
-def codex_resume_words(command: str, session_id: str) -> list[str]:
-    words = command_words(command)
-    if not words or not command_tool(command):
-        words = ["codex"]
+def current_assistant_process(
+    pane: dict[str, str],
+    tool: str,
+    children: dict[str, list[tuple[str, str]]],
+) -> tuple[str, list[str]]:
+    candidates: list[tuple[str, list[str]]] = []
 
-    cleaned: list[str] = []
-    index = 0
-    while index < len(words):
-        if words[index] == "resume" and index + 1 < len(words) and UUID_RE.fullmatch(words[index + 1]):
-            index += 2
+    root_words = process_argv(pane["pane_pid"])
+    if words_tool(root_words) == tool:
+        candidates.append((pane["pane_pid"], root_words))
+
+    for pid, lossy_command in children.get(pane["pane_pid"], []):
+        exact_words = process_argv(pid)
+        if words_tool(exact_words) == tool:
+            candidates.append((pid, exact_words))
             continue
-        cleaned.append(words[index])
-        index += 1
-    return cleaned + ["resume", session_id]
+        lossy_name = command_name(lossy_command)
+        if not exact_words and (
+            command_tool(lossy_command) == tool
+            or (tool == "claude" and is_version_name(lossy_name))
+        ):
+            return "", []
+
+    # More than one direct assistant child means at least one can be a
+    # background/stopped job. tmux's pane command cannot identify which child
+    # owns the foreground terminal reliably enough for destructive respawn.
+    return candidates[0] if len(candidates) == 1 else ("", [])
 
 
-def claude_resume_words(command: str, session_id: str) -> list[str]:
-    words = command_words(command)
-    if not words or not command_tool(command):
-        words = ["claude"]
-
-    cleaned: list[str] = []
-    index = 0
-    while index < len(words):
-        word = words[index]
-        if word in {"--resume", "-r"}:
-            index += 2 if index + 1 < len(words) else 1
-            continue
-        if word.startswith("--resume="):
-            index += 1
-            continue
-        cleaned.append(word)
-        index += 1
-    return cleaned + ["--resume", session_id]
+def process_lstart_epoch(pid: str) -> Optional[float]:
+    if not pid.isdigit():
+        return None
+    try:
+        text = subprocess.check_output(
+            ["ps", "-p", pid, "-o", "lstart="],
+            text=True,
+            stderr=subprocess.DEVNULL,
+            env={**os.environ, "LC_ALL": "C"},
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    try:
+        return datetime.strptime(text, "%a %b %d %H:%M:%S %Y").timestamp()
+    except ValueError:
+        return None
 
 
-def resume_words(tool: str, child_command: str, session_id: str) -> list[str]:
-    if tool == "claude":
-        return claude_resume_words(child_command, session_id)
-    return codex_resume_words(child_command, session_id)
+def source_words(tool: str, exact_words: list[str]) -> list[str]:
+    if exact_words and words_tool(exact_words) == tool:
+        return exact_words
+    return [tool]
 
 
 def shell_command(words: list[str], cwd: str, tool: str) -> str:
-    shell = os.environ.get("SHELL", "") or "/bin/zsh"
-    if not Path(shell).exists():
-        shell = "/bin/zsh"
+    runner = next(
+        (
+            path
+            for path in ("/bin/zsh", "/bin/bash", "/bin/sh")
+            if Path(path).is_file()
+        ),
+        "",
+    )
+    if not runner:
+        raise RuntimeError("no POSIX-compatible shell found")
+
+    login_shell = os.environ.get("SHELL", "")
+    if not login_shell or not Path(login_shell).is_file():
+        login_shell = runner
 
     command = " ".join(shlex.quote(word) for word in words)
     workdir = usable_dir(cwd)
@@ -273,9 +403,9 @@ def shell_command(words: list[str], cwd: str, tool: str) -> str:
         f"{command}; "
         "status=$?; "
         f"printf '\\n[{tool} exited with status %s; shell refreshed]\\n' \"$status\"; "
-        'exec "${SHELL:-/bin/zsh}" -l'
+        f"exec {shlex.quote(login_shell)} -l"
     )
-    return f"exec {shlex.quote(shell)} -lic {shlex.quote(inner)}"
+    return f"exec {shlex.quote(runner)} -lic {shlex.quote(inner)}"
 
 
 def list_panes() -> list[dict[str, str]]:
@@ -291,17 +421,32 @@ def list_panes() -> list[dict[str, str]]:
             "#{window_index}",
             "#{pane_index}",
             "#{window_name}",
+            "#{socket_path}",
+            "#{pid}",
         ]
     )
     output = tmux(["list-panes", "-a", "-F", fmt], check=True)
     panes: list[dict[str, str]] = []
     seen: set[str] = set()
     for line in output.splitlines():
-        parts = line.split("\t", 9)
-        if len(parts) != 10:
+        parts = line.split("\t", 11)
+        if len(parts) != 12:
             continue
-        pane_id, pane_pid, command, title, path, session_name, window_id, window_index, pane_index, window_name = parts
-        if not pane_id or pane_id in seen:
+        (
+            pane_id,
+            pane_pid,
+            command,
+            title,
+            path,
+            session_name,
+            window_id,
+            window_index,
+            pane_index,
+            window_name,
+            socket_path,
+            server_pid,
+        ) = parts
+        if not pane_id or pane_id in seen or not server_pid.isdigit():
             continue
         seen.add(pane_id)
         panes.append(
@@ -316,69 +461,270 @@ def list_panes() -> list[dict[str, str]]:
                 "window_index": window_index,
                 "pane_index": pane_index,
                 "window_name": window_name,
+                "socket_path": socket_path,
+                "server_pid": server_pid,
             }
         )
     return panes
 
 
+def live_pane_identity(pane_id: str) -> dict[str, str]:
+    fmt = "\t".join(
+        (
+            "#{pane_id}",
+            "#{pane_pid}",
+            "#{pane_current_command}",
+            "#{pane_title}",
+            "#{socket_path}",
+            "#{pid}",
+        )
+    )
+    try:
+        fields = tmux(["display-message", "-p", "-t", pane_id, fmt], check=True).split(
+            "\t", 5
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return {}
+    if (
+        len(fields) != 6
+        or fields[0] != pane_id
+        or not fields[1].isdigit()
+        or not fields[5].isdigit()
+    ):
+        return {}
+    return dict(
+        zip(
+            (
+                "pane_id",
+                "pane_pid",
+                "command",
+                "title",
+                "socket_path",
+                "server_pid",
+            ),
+            fields,
+        )
+    )
+
+
+def process_identity_matches(
+    pane: dict[str, str],
+    tool: str,
+    process_pid: str,
+    process_start_epoch: float,
+    exact_words: list[str],
+) -> bool:
+    live_pane = live_pane_identity(pane["pane_id"])
+    if not live_pane or live_pane["pane_pid"] != pane["pane_pid"]:
+        return False
+    if live_pane["server_pid"] != pane.get("server_pid", ""):
+        return False
+    if pane_tool(live_pane) != tool:
+        return False
+    if realpath(live_pane.get("socket_path", "")) != realpath(
+        pane.get("socket_path", "")
+    ):
+        return False
+
+    live_children = children_by_parent(process_rows())
+    live_pid, live_words = current_assistant_process(live_pane, tool, live_children)
+    if (
+        live_pid != process_pid
+        or live_words != exact_words
+        or words_tool(live_words) != tool
+    ):
+        return False
+    return process_lstart_epoch(live_pid) == process_start_epoch
+
+
+def respawn_lock_path(pane: dict[str, str]) -> Path:
+    server_pid = pane.get("server_pid", "")
+    pane_number = pane.get("pane_id", "").lstrip("%")
+    namespaced = server_state_dir(STATE_DIR, pane.get("socket_path", ""))
+    if namespaced is None or not server_pid.isdigit() or not pane_number.isdigit():
+        raise OSError("invalid tmux respawn lock identity")
+    return (
+        namespaced
+        / "restart-locks"
+        / f"server-{server_pid}"
+        / f"pane-{pane_number}.lock"
+    )
+
+
+@contextmanager
+def pane_respawn_lock(pane: dict[str, str]) -> Iterator[None]:
+    lock_path = respawn_lock_path(pane)
+    for directory in (
+        STATE_DIR,
+        STATE_DIR / "servers",
+        lock_path.parent.parent.parent,
+        lock_path.parent.parent,
+        lock_path.parent,
+    ):
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(directory, 0o700)
+
+    descriptor = os.open(
+        str(lock_path),
+        os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0),
+        0o600,
+    )
+    try:
+        os.fchmod(descriptor, 0o600)
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        finally:
+            os.close(descriptor)
+
+
+def verified_respawn(
+    pane: dict[str, str],
+    tool: str,
+    process_pid: str,
+    process_start_epoch: float,
+    exact_words: list[str],
+    cwd: str,
+    command: str,
+) -> str:
+    try:
+        with pane_respawn_lock(pane):
+            if not process_identity_matches(
+                pane, tool, process_pid, process_start_epoch, exact_words
+            ):
+                return "process changed before respawn"
+            try:
+                tmux(
+                    [
+                        "respawn-pane",
+                        "-k",
+                        "-t",
+                        pane["pane_id"],
+                        "-c",
+                        usable_dir(cwd),
+                        command,
+                    ]
+                )
+            except subprocess.CalledProcessError:
+                return "respawn failed"
+    except OSError:
+        return "respawn lock unavailable"
+    return ""
+
+
 def restart_panes(dry_run: bool, tool_filter: str) -> tuple[int, int, int]:
-    children = children_by_parent()
+    children = children_by_parent(process_rows())
     restarted = 0
     skipped = 0
     found = 0
 
     for pane in list_panes():
-        child_tool, child_command = child_command_for_tool(pane["pane_pid"], children)
-        tool = pane_tool(pane, child_tool)
+        tool = pane_tool(pane)
         if not tool or (tool_filter != "all" and tool != tool_filter):
             continue
 
         found += 1
-        session_id = resume_id_from_command(tool, child_command)
-        cwd = ""
+        process_pid, exact_words = current_assistant_process(pane, tool, children)
+        if not process_pid:
+            skipped += 1
+            print(
+                f"skip {pane['pane_id']} {tool}: foreground assistant process is ambiguous",
+                file=sys.stderr,
+            )
+            continue
+
+        process_start = process_lstart_epoch(process_pid)
+        if not exact_words or process_start is None:
+            skipped += 1
+            print(
+                f"skip {pane['pane_id']} {tool}: exact process identity is unavailable",
+                file=sys.stderr,
+            )
+            continue
+
+        session_id = resume_id_from_words(exact_words, tool) if exact_words else ""
+        cwd = pane["path"]
+        source = "current command"
         if not session_id:
-            session_id, cwd = saved_session_id(tool, pane)
-        if not session_id:
-            session_id = capture_resume_id(tool, pane["pane_id"])
+            session_id, state_cwd = saved_session_id(tool, pane, process_start)
+            cwd = state_cwd or cwd
+            source = "fresh pane state"
 
         if not session_id:
             skipped += 1
-            print(f"skip {pane['pane_id']} {tool}: no saved resume id", file=sys.stderr)
+            print(
+                f"skip {pane['pane_id']} {tool}: no verified current/fresh resume id",
+                file=sys.stderr,
+            )
             continue
 
-        cwd = cwd or pane["path"]
-        words = resume_words(tool, child_command, session_id)
-        command = shell_command(words, cwd, tool)
-        label = f"{pane['session_name']}:{pane['window_index']}.{pane['pane_index']} {tool}"
-
-        if dry_run:
-            print(f"would restart {label} ({pane['pane_id']})")
+        words = build_resume_words(source_words(tool, exact_words), tool, session_id)
+        resolved_executable = resolve_executable(
+            words[0] if words else "", cwd, tool
+        )
+        if not words or not resolved_executable:
+            skipped += 1
+            print(f"skip {pane['pane_id']} {tool}: executable is unavailable", file=sys.stderr)
             continue
-
+        words[0] = resolved_executable
         try:
-            tmux(["respawn-pane", "-k", "-t", pane["pane_id"], "-c", usable_dir(cwd), command])
-        except subprocess.CalledProcessError:
+            command = shell_command(words, cwd, tool)
+        except RuntimeError as error:
             skipped += 1
-            print(f"skip {pane['pane_id']} {tool}: respawn failed", file=sys.stderr)
+            print(f"skip {pane['pane_id']} {tool}: {error}", file=sys.stderr)
+            continue
+
+        label = f"{pane['session_name']}:{pane['window_index']}.{pane['pane_index']} {tool}"
+        if dry_run:
+            print(f"would restart {label} ({pane['pane_id']}; id from {source})")
+            continue
+
+        respawn_error = verified_respawn(
+            pane,
+            tool,
+            process_pid,
+            process_start,
+            exact_words,
+            cwd,
+            command,
+        )
+        if respawn_error:
+            skipped += 1
+            print(
+                f"skip {pane['pane_id']} {tool}: {respawn_error}",
+                file=sys.stderr,
+            )
             continue
 
         restarted += 1
-        print(f"restarted {label} ({pane['pane_id']})")
+        print(f"restarted {label} ({pane['pane_id']}; id from {source})")
 
     if not dry_run:
         refresh = Path.home() / "GitHubRepos/dotfiles/tmux/codex-window-badges-refresh.sh"
         if refresh.exists():
-            subprocess.run([str(refresh), "--force"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+            subprocess.run(
+                [str(refresh), "--force"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
 
     return found, restarted, skipped
 
 
-def display_message(text: str) -> None:
-    subprocess.run(["tmux", "display-message", text], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+def display_message(message: str) -> None:
+    subprocess.run(
+        ["tmux", "display-message", message],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Restart Codex and Claude Code panes with saved resume ids.")
+    parser = argparse.ArgumentParser(description="Restart Codex and Claude Code panes with verified resume IDs.")
     parser.add_argument("--dry-run", action="store_true", help="show what would restart without touching panes")
     parser.add_argument("--tool", choices=["all", "codex", "claude"], default="all")
     args = parser.parse_args()
@@ -399,7 +745,7 @@ def main() -> int:
     if found == 0:
         message = "No Codex/Claude panes found"
     elif restarted == 0:
-        message = f"No Codex/Claude panes restarted ({skipped} skipped; no resume id or respawn failed)"
+        message = f"No Codex/Claude panes restarted ({skipped} skipped; no verified ID or respawn failed)"
     else:
         message = f"Restarted {restarted} Codex/Claude pane(s)"
         if skipped:

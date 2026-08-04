@@ -7,16 +7,19 @@ import shutil
 import subprocess
 import sys
 
+from codex_notify_common import CLASS_ROOT, classify_thread, clean_text
+
 GHOSTTY_BUNDLE_ID = "com.mitchellh.ghostty"
 OSC9_LIMIT = 180
 TITLE_LIMIT = 72
 SUBTITLE_LIMIT = 110
 MESSAGE_LIMIT = 160
 TERMINAL_NOTIFIER_TIMEOUT_SECONDS = 3
+TMUX_QUERY_TIMEOUT_SECONDS = 0.5
 
 
 def collapse(text: str) -> str:
-    return re.sub(r"\s+", " ", text).strip()
+    return clean_text(text)
 
 
 def truncate(text: str, limit: int) -> str:
@@ -50,18 +53,49 @@ def task_summary(messages: object) -> str:
 
 def shell_output(command: list[str]) -> str:
     try:
-        return subprocess.check_output(command, text=True, stderr=subprocess.DEVNULL).strip()
-    except (OSError, subprocess.CalledProcessError):
+        return subprocess.check_output(
+            command,
+            text=True,
+            stderr=subprocess.DEVNULL,
+            timeout=TMUX_QUERY_TIMEOUT_SECONDS,
+        ).strip()
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
         return ""
+
+
+def tmux_server_identity(tmux_socket: str) -> tuple[str, str]:
+    canonical_socket = os.path.realpath(tmux_socket)
+    output = shell_output(
+        [
+            "tmux",
+            "-S",
+            canonical_socket,
+            "display-message",
+            "-p",
+            "#{pid}\t#{socket_path}",
+        ]
+    )
+    parts = output.split("\t", 1)
+    if len(parts) != 2 or not parts[0].isdigit():
+        return "", ""
+    return parts[0], os.path.realpath(parts[1])
 
 
 def tmux_context() -> dict[str, str]:
     pane = os.environ.get("TMUX_PANE")
-    if not pane:
+    tmux_parts = os.environ.get("TMUX", "").split(",", 2)
+    if not pane or len(tmux_parts) < 2 or not tmux_parts[1].isdigit():
+        return {}
+    tmux_socket = os.path.realpath(tmux_parts[0])
+    expected_identity = (tmux_parts[1], tmux_socket)
+    frozen_identity = tmux_server_identity(tmux_socket)
+    if frozen_identity != expected_identity:
         return {}
     output = shell_output(
         [
             "tmux",
+            "-S",
+            os.path.realpath(tmux_socket),
             "display-message",
             "-p",
             "-t",
@@ -69,20 +103,20 @@ def tmux_context() -> dict[str, str]:
             "#{client_tty}|#{client_termname}|#{client_termtype}|#{session_name}|#{window_index}|#{window_name}|#{pane_id}|#{pane_index}",
         ]
     )
-    if not output:
+    if not output or tmux_server_identity(tmux_socket) != frozen_identity:
         return {}
     parts = output.split("|", 7)
     if len(parts) != 8:
         return {}
     return {
-        "client_tty": parts[0],
-        "client_termname": parts[1],
-        "client_termtype": parts[2],
-        "session_name": parts[3],
-        "window_index": parts[4],
-        "window_name": parts[5],
-        "pane_id": parts[6],
-        "pane_index": parts[7],
+        "client_tty": collapse(parts[0]),
+        "client_termname": collapse(parts[1]),
+        "client_termtype": collapse(parts[2]),
+        "session_name": collapse(parts[3]),
+        "window_index": collapse(parts[4]),
+        "window_name": collapse(parts[5]),
+        "pane_id": collapse(parts[6]),
+        "pane_index": collapse(parts[7]),
     }
 
 
@@ -101,7 +135,7 @@ def tmux_label(context: dict[str, str]) -> str:
         parts.append(f"{window_index}:{window_name}".strip(":"))
     if pane_id:
         parts.append(pane_id)
-    return " · ".join(parts)
+    return collapse(" · ".join(parts))
 
 
 def direct_terminal_info() -> tuple[str, str, str]:
@@ -174,12 +208,30 @@ def main() -> int:
     if len(sys.argv) < 2:
         return 1
 
+    classify_only = sys.argv[1] in ("--classify", "--is-subagent")
+    classified_root = sys.argv[1] == "--classified-root"
+    payload_index = 2 if classify_only or classified_root else 1
+    if len(sys.argv) <= payload_index:
+        return 2 if classify_only else 1
+
     try:
-        notification = json.loads(sys.argv[1])
+        notification = json.loads(sys.argv[payload_index])
     except json.JSONDecodeError:
-        return 1
+        return 2 if classify_only else 1
+
+    if classify_only:
+        classification = classify_thread(notification)
+        if sys.argv[1] == "--classify":
+            print(classification)
+            return 0
+        if classification == "subagent":
+            return 0
+        return 1 if classification == CLASS_ROOT else 2
 
     if notification.get("type") != "agent-turn-complete":
+        return 0
+
+    if not classified_root and classify_thread(notification) != CLASS_ROOT:
         return 0
 
     cwd = collapse(str(notification.get("cwd", "")))

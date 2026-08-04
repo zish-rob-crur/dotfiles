@@ -53,6 +53,35 @@ Ghostty expects `Maple Mono NF CN`; `brew bundle --file Brewfile` installs it. `
 
 ## tmux
 
+Codex and Claude panes expose a compact window badge in the tmux status bar:
+
+- blue `●`: working
+- yellow `◆`: waiting for input or approval
+- green `󰄬`: finished and not yet viewed
+- red `×`: errored
+
+One background refresher runs per tmux server and checks pane titles plus the
+bottom of the visible TUI every two seconds. Session-group aliases are deduped
+by physical window/pane ID. Finished is acknowledged only after its pane is
+selected in a focused tmux client; acknowledgment clears `unread` without
+deleting the conversation ID used for recovery.
+
+Codex completion notifications first pass through
+`tmux/codex-notify-router.py`. Confirmed subagent completions (and unknown
+thread identities) stop before Computer Use/Sky, the sidebar state, the badge,
+and desktop notifications. Confirmed root completions are forwarded once;
+Codex TUI notifications remain enabled only for approval requests.
+
+tmux-resurrect and `<prefix> + A` restore a Codex/Claude conversation only from
+an ID in the current process command or from fresh state that matches the pane,
+window, cwd, process lifetime, and tmux server generation. They never infer an
+ID from scrollback. Unverified resurrect entries return to a login shell
+instead of opening a resume picker. Saved permission overrides such as `--yolo`,
+`--add-dir`, sandbox/approval overrides, and
+`--dangerously-skip-permissions` are removed while safe model/reasoning flags are
+preserved. The temporary assistant launcher keeps its explicit
+bypass-permissions behavior.
+
 ## Install Package
 
 ### Mac OS
