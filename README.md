@@ -76,11 +76,11 @@ tmux-resurrect and `<prefix> + A` restore a Codex/Claude conversation only from
 an ID in the current process command or from fresh state that matches the pane,
 window, cwd, process lifetime, and tmux server generation. They never infer an
 ID from scrollback. Unverified resurrect entries return to a login shell
-instead of opening a resume picker. Saved permission overrides such as `--yolo`,
-`--add-dir`, sandbox/approval overrides, and
-`--dangerously-skip-permissions` are removed while safe model/reasoning flags are
-preserved. The temporary assistant launcher keeps its explicit
-bypass-permissions behavior.
+instead of opening a resume picker. Saved granular permission/tool overrides
+such as `--add-dir` and sandbox/approval settings are removed while safe
+model/reasoning flags are preserved. Restored Codex sessions are normalized to
+`--yolo`, and restored Claude sessions to `--dangerously-skip-permissions`; the
+temporary assistant launcher keeps the same bypass-permissions behavior.
 
 ## Install Package
 

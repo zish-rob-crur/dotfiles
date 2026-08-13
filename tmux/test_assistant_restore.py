@@ -283,7 +283,7 @@ class ResumeBuilderTests(unittest.TestCase):
             self.assertEqual(resolved, str(stable))
             self.assertNotEqual(resolved, os.path.realpath(stable))
 
-    def test_codex_preserves_safe_flags_and_drops_prompt_and_permissions(self) -> None:
+    def test_codex_preserves_safe_flags_drops_stale_permissions_and_forces_yolo(self) -> None:
         words = ARGS.build_resume_words(
             [
                 "codex",
@@ -306,15 +306,16 @@ class ResumeBuilderTests(unittest.TestCase):
                 "--model",
                 "gpt-5",
                 "-cmodel_reasoning_effort=high",
+                "--yolo",
                 "resume",
                 SESSION_ID,
             ],
         )
 
-    def test_codex_bare_resume_becomes_exact_resume(self) -> None:
+    def test_codex_bare_resume_becomes_exact_yolo_resume(self) -> None:
         self.assertEqual(
             ARGS.build_resume_words(["codex", "resume", "--last"], "codex", SESSION_ID),
-            ["codex", "resume", SESSION_ID],
+            ["codex", "--yolo", "resume", SESSION_ID],
         )
 
     def test_claude_optional_resume_does_not_consume_effort(self) -> None:
@@ -329,12 +330,13 @@ class ResumeBuilderTests(unittest.TestCase):
                 "claude",
                 "--effort",
                 "high",
+                "--dangerously-skip-permissions",
                 "--resume",
                 SESSION_ID,
             ],
         )
 
-    def test_claude_preserves_safe_flags_and_drops_permission_flags(self) -> None:
+    def test_claude_preserves_safe_flags_drops_stale_permissions_and_forces_bypass(self) -> None:
         words = ARGS.build_resume_words(
             [
                 "claude",
@@ -357,6 +359,7 @@ class ResumeBuilderTests(unittest.TestCase):
                 "claude",
                 "--model",
                 "opus",
+                "--dangerously-skip-permissions",
                 "--resume",
                 SESSION_ID,
             ],
@@ -387,6 +390,7 @@ class ResumeBuilderTests(unittest.TestCase):
                 "codex",
                 "--model",
                 "gpt-5",
+                "--yolo",
                 "resume",
                 SESSION_ID,
             ],
@@ -415,6 +419,7 @@ class ResumeBuilderTests(unittest.TestCase):
                 "opus",
                 "--effort",
                 "high",
+                "--dangerously-skip-permissions",
                 "--resume",
                 SESSION_ID,
             ],
@@ -749,7 +754,7 @@ class ResurrectSaveHookTests(unittest.TestCase):
         assert rewritten is not None
         self.assertEqual(
             rewritten.split("\t")[10],
-            f":{CODEX_BIN} --model gpt-5 resume {SESSION_ID}",
+            f":{CODEX_BIN} --model gpt-5 --yolo resume {SESSION_ID}",
         )
 
     def test_existing_claude_resume_is_canonicalized_and_sanitized(self) -> None:
@@ -773,14 +778,15 @@ class ResurrectSaveHookTests(unittest.TestCase):
         assert rewritten is not None
         self.assertEqual(
             rewritten.split("\t")[10],
-            f":{CLAUDE_BIN} --effort high --resume {SESSION_ID}",
+            f":{CLAUDE_BIN} --effort high --dangerously-skip-permissions "
+            f"--resume {SESSION_ID}",
         )
 
-    def test_verified_clean_resume_is_left_unchanged(self) -> None:
-        with verified_hook_process(["codex", "resume", SESSION_ID]):
+    def test_verified_canonical_yolo_resume_is_left_unchanged(self) -> None:
+        with verified_hook_process(["codex", "--yolo", "resume", SESSION_ID]):
             self.assertIsNone(
                 RESURRECT.rewrite_pane_line(
-                    saved_pane(f"{CODEX_BIN} resume {SESSION_ID}")
+                    saved_pane(f"{CODEX_BIN} --yolo resume {SESSION_ID}")
                 )
             )
 
@@ -794,7 +800,8 @@ class ResurrectSaveHookTests(unittest.TestCase):
         self.assertIsNotNone(rewritten)
         assert rewritten is not None
         self.assertEqual(
-            rewritten.split("\t")[10], f":{CODEX_BIN} resume {SESSION_ID}"
+            rewritten.split("\t")[10],
+            f":{CODEX_BIN} --yolo resume {SESSION_ID}",
         )
 
     def test_unverified_bare_resume_restores_a_login_shell(self) -> None:
@@ -849,7 +856,7 @@ class ResurrectSaveHookTests(unittest.TestCase):
         assert rewritten is not None
         self.assertEqual(
             rewritten.split("\t")[10],
-            f":{CODEX_BIN} --model current resume {SESSION_ID}",
+            f":{CODEX_BIN} --model current --yolo resume {SESSION_ID}",
         )
 
     def test_fresh_state_without_exact_argv_builds_minimal_resume(self) -> None:
@@ -881,7 +888,8 @@ class ResurrectSaveHookTests(unittest.TestCase):
         self.assertIsNotNone(rewritten)
         assert rewritten is not None
         self.assertEqual(
-            rewritten.split("\t")[10], f":{CODEX_BIN} resume {SESSION_ID}"
+            rewritten.split("\t")[10],
+            f":{CODEX_BIN} --yolo resume {SESSION_ID}",
         )
 
     def test_multiple_live_exact_assistants_are_ambiguous(self) -> None:
@@ -920,7 +928,7 @@ class ResurrectSaveHookTests(unittest.TestCase):
         assert rewritten is not None
         self.assertEqual(
             rewritten.split("\t")[10],
-            f":{CODEX_BIN} --model gpt-5 resume {SESSION_ID}",
+            f":{CODEX_BIN} --model gpt-5 --yolo resume {SESSION_ID}",
         )
 
     def test_versioned_claude_binary_is_sanitized(self) -> None:
@@ -945,7 +953,7 @@ class ResurrectSaveHookTests(unittest.TestCase):
         assert rewritten is not None
         self.assertEqual(
             rewritten.split("\t")[10],
-            f":{CLAUDE_BIN} --resume {SESSION_ID}",
+            f":{CLAUDE_BIN} --dangerously-skip-permissions --resume {SESSION_ID}",
         )
 
     def test_malformed_resurrect_lines_are_ignored(self) -> None:

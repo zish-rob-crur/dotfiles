@@ -500,7 +500,7 @@ def codex_resume_words(words: list[str], session_id: str) -> list[str]:
         # A positional value here is an old prompt/subcommand. Never replay it.
         break
 
-    return cleaned + ["resume", session_id]
+    return cleaned + ["--yolo", "resume", session_id]
 
 
 def claude_resume_words(words: list[str], session_id: str) -> list[str]:
@@ -554,7 +554,7 @@ def claude_resume_words(words: list[str], session_id: str) -> list[str]:
         # Do not replay an initial or resume-picker prompt.
         break
 
-    return cleaned + ["--resume", session_id]
+    return cleaned + ["--dangerously-skip-permissions", "--resume", session_id]
 
 
 def build_resume_words(words: list[str], tool: str, session_id: str) -> list[str]:
