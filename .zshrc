@@ -430,3 +430,13 @@ autoload -Uz compinit && compinit -C
 
 # Added by Antigravity CLI installer
 export PATH="/Users/zhiwen.wang/.local/bin:$PATH"
+
+# Back up tmux-resurrect state and close all tmux sessions after confirmation.
+tmux-reset() {
+  local reset_helper="$HOME/GitHubRepos/dotfiles/tmux/reset-state.sh"
+  if [[ ! -x "$reset_helper" ]]; then
+    print -u2 "tmux-reset: reset helper is not executable: $reset_helper"
+    return 1
+  fi
+  "$reset_helper" "$@"
+}
