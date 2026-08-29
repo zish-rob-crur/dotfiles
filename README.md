@@ -108,7 +108,12 @@ tmux
 <Ctrl-b> + r (reload tmux)
 <Ctrl-b> + Tab (open extrakto)
 <Ctrl-b> + e (open treemux sidebar)
+<Ctrl-b> + C (pick a path, then copy it or open it in a new tmux pane/window with nvim)
 ```
+
+The same path menu is available from zsh as `cpf [path]`. Use `cpf -a [path]`,
+`cpf -r [path]`, or `cpf -f [path]` to directly copy an absolute path, a path
+relative to the current directory, or a Finder file object.
 
 ## Git
 

@@ -431,6 +431,16 @@ autoload -Uz compinit && compinit -C
 # Added by Antigravity CLI installer
 export PATH="/Users/zhiwen.wang/.local/bin:$PATH"
 
+# Select a path and copy/open it. Use -a/-r/-f for absolute/relative/Finder copy.
+cpf() {
+  local path_actions="$HOME/GitHubRepos/dotfiles/tmux/path-actions.sh"
+  if [[ ! -x "$path_actions" ]]; then
+    print -u2 "cpf: path action helper is not executable: $path_actions"
+    return 1
+  fi
+  "$path_actions" --cwd "$PWD" "$@"
+}
+
 # Back up tmux-resurrect state and close all tmux sessions after confirmation.
 tmux-reset() {
   local reset_helper="$HOME/GitHubRepos/dotfiles/tmux/reset-state.sh"
