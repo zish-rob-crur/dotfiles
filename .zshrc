@@ -441,6 +441,19 @@ cpf() {
   "$path_actions" --cwd "$PWD" "$@"
 }
 
+# Resume Codex sessions from this project, the latest session, or all projects.
+cr() {
+  command codex resume "$@"
+}
+
+crl() {
+  command codex resume --last "$@"
+}
+
+cra() {
+  command codex resume --all "$@"
+}
+
 # Back up tmux-resurrect state and close all tmux sessions after confirmation.
 tmux-reset() {
   local reset_helper="$HOME/GitHubRepos/dotfiles/tmux/reset-state.sh"

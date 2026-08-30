@@ -72,6 +72,17 @@ thread identities) stop before Computer Use/Sky, the sidebar state, the badge,
 and desktop notifications. Confirmed root completions are forwarded once;
 Codex TUI notifications remain enabled only for approval requests.
 
+An hourly, per-tmux-server daemon parks Codex panes that have stayed at an
+empty composer for three days. It skips focused panes, active work, approval
+dialogs, typed drafts, and sessions without a verified ID. A parked pane
+returns to zsh and prints its session ID plus `codex resume <id>`. Change
+`@codex-idle-park-seconds` or `@codex-idle-park-interval` in `.tmux.conf` to
+adjust the defaults. Run `tmux/codex-idle-parker.py` for a dry run or add
+`--apply` for a one-time cleanup.
+
+From zsh, `cr` opens the current project's Codex resume picker, `crl` resumes
+its latest session, and `cra` opens the picker across all projects.
+
 tmux-resurrect and `<prefix> + A` restore a Codex/Claude conversation only from
 an ID in the current process command or from fresh state that matches the pane,
 window, cwd, process lifetime, and tmux server generation. They never infer an
