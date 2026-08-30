@@ -13,6 +13,8 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
+from codex_session_titles import refresh_codex_pane_titles
+
 
 TAB = "\t"
 STATE_DIR = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))) / "tmux-pane-layout-status"
@@ -56,6 +58,7 @@ class Pane:
     height: int
     command: str
     title: str
+    session_title: str
     path: str
 
     @property
@@ -273,6 +276,9 @@ def clean_title(title: str, command: str) -> str:
 
 
 def pane_main_text(pane: Pane) -> str:
+    if pane.icon == CODEX_ICON and pane.session_title:
+        return pane.session_title
+
     title = clean_title(pane.title, pane.command)
     if title:
         return title
@@ -300,7 +306,11 @@ def render_pane_labels(pane: Pane) -> tuple[str, str]:
         active = truncate(f"{icon} {main} · {basename}", active_limit)
 
     if icon in {CODEX_ICON, CLAUDE_ICON}:
-        inactive_main = clean_title(pane.title, pane.command) or basename
+        inactive_main = (
+            pane.session_title
+            if icon == CODEX_ICON and pane.session_title
+            else clean_title(pane.title, pane.command) or basename
+        )
     else:
         inactive_main = basename
     inactive = truncate(f"{icon} {inactive_main}", inactive_limit)
@@ -353,6 +363,7 @@ def list_panes() -> dict[str, list[Pane]]:
             "#{pane_height}",
             "#{pane_current_command}",
             "#{pane_title}",
+            "#{@codex-session-title}",
             "#{pane_current_path}",
         ]
     )
@@ -362,11 +373,23 @@ def list_panes() -> dict[str, list[Pane]]:
     for line in output.splitlines():
         if not line:
             continue
-        parts = line.split(TAB, 9)
-        if len(parts) != 10:
+        parts = line.split(TAB, 10)
+        if len(parts) != 11:
             continue
 
-        window_id, pane_id, active, left, top, width, height, command, title, path = parts
+        (
+            window_id,
+            pane_id,
+            active,
+            left,
+            top,
+            width,
+            height,
+            command,
+            title,
+            session_title,
+            path,
+        ) = parts
         try:
             pane = Pane(
                 window_id=window_id,
@@ -378,6 +401,7 @@ def list_panes() -> dict[str, list[Pane]]:
                 height=int(height),
                 command=command,
                 title=title,
+                session_title=session_title,
                 path=path,
             )
         except ValueError:
@@ -411,6 +435,9 @@ def should_refresh(force: bool) -> bool:
 def refresh(force: bool = False, print_only: bool = False) -> int:
     if not print_only and not should_refresh(force):
         return 0
+
+    if not print_only:
+        refresh_codex_pane_titles()
 
     old_values = list_old_values()
     old_pane_labels = list_old_pane_labels()

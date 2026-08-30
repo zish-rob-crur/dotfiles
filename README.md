@@ -83,6 +83,10 @@ adjust the defaults. Run `tmux/codex-idle-parker.py` for a dry run or add
 From zsh, `cr` opens the current project's Codex resume picker, `crl` resumes
 its latest session, and `cra` opens the picker across all projects.
 
+Codex session titles are mirrored into tmux pane labels and the `<prefix> + g`
+window/pane picker. Explicitly named sessions take priority; unnamed sessions
+use the same generated thread title shown by Codex's resume picker.
+
 tmux-resurrect and `<prefix> + A` restore a Codex/Claude conversation only from
 an ID in the current process command or from fresh state that matches the pane,
 window, cwd, process lifetime, and tmux server generation. They never infer an

@@ -14,7 +14,7 @@ id="${rest%%$'\t'*}"
 
 if [[ "$type" == "W" ]]; then
   win="$id"
-  tmux list-panes -t "${session}:${win}" -F '#{pane_index}: #{pane_title}  #{pane_current_command}  #{pane_current_path}  #{?pane_active,[active],}' 2>/dev/null || true
+  tmux list-panes -t "${session}:${win}" -F '#{pane_index}: #{?#{@codex-session-title},#{@codex-session-title},#{pane_title}}  #{pane_current_command}  #{pane_current_path}  #{?pane_active,[active],}' 2>/dev/null || true
   exit 0
 fi
 

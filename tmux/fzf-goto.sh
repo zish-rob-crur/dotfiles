@@ -391,7 +391,7 @@ select_pane_in_window() {
   local inherited_tty="$5"
   local panes entries out key selected
 
-  panes="$(tmux list-panes -t "${current_session}:${window_id}" -F '#{pane_id}'$'\t''#{pane_index}'$'\t''#{pane_title}'$'\t''#{pane_current_command}'$'\t''#{pane_current_path}'$'\t''#{pane_active}'$'\t''#{window_index}'$'\t''#{window_name}' 2>/dev/null || true)"
+  panes="$(tmux list-panes -t "${current_session}:${window_id}" -F '#{pane_id}'$'\t''#{pane_index}'$'\t''#{?#{@codex-session-title},#{@codex-session-title},#{pane_title}}'$'\t''#{pane_current_command}'$'\t''#{pane_current_path}'$'\t''#{pane_active}'$'\t''#{window_index}'$'\t''#{window_name}' 2>/dev/null || true)"
   [[ -z "$panes" ]] && exit 0
 
   entries=""
@@ -464,7 +464,7 @@ while IFS=$'\t' read -r window_id window_index window_name window_panes pane_id 
   append_entry "$state" "$entry"
 done <<<"$windows"
 
-panes="$(tmux list-panes -s -t "$current_session" -F '#{window_id}'$'\t''#{window_index}'$'\t''#{window_name}'$'\t''#{pane_id}'$'\t''#{pane_index}'$'\t''#{pane_title}'$'\t''#{pane_current_command}'$'\t''#{pane_current_path}'$'\t''#{pane_active}' 2>/dev/null || true)"
+panes="$(tmux list-panes -s -t "$current_session" -F '#{window_id}'$'\t''#{window_index}'$'\t''#{window_name}'$'\t''#{pane_id}'$'\t''#{pane_index}'$'\t''#{?#{@codex-session-title},#{@codex-session-title},#{pane_title}}'$'\t''#{pane_current_command}'$'\t''#{pane_current_path}'$'\t''#{pane_active}' 2>/dev/null || true)"
 while IFS=$'\t' read -r window_id window_index window_name pane_id pane_index pane_title pane_command pane_path pane_active; do
   [[ -z "$window_id" || -z "$pane_id" ]] && continue
   classify_window "$window_id"
