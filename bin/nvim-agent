@@ -68,19 +68,85 @@ shell_quote() {
     printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
 }
 
+write_tmux_child_status() {
+    child_status="$1"
+    status_file="${NVIM_AGENT_STATUS_FILE:-}"
+    [ -n "$status_file" ] || return 0
+
+    # Publish the status atomically. This avoids exposing a briefly truncated
+    # status file while the parent is deciding whether the pane has vanished.
+    status_tmp="${status_file}.tmp.$$"
+    if printf '%s\n' "$child_status" >"$status_tmp" 2>/dev/null &&
+        mv -f "$status_tmp" "$status_file" 2>/dev/null; then
+        return 0
+    fi
+
+    rm -f "$status_tmp"
+    return 1
+}
+
 finish_tmux_child() {
     child_status="${1:-1}"
     trap - 0 1 2 15
 
-    if [ -n "${NVIM_AGENT_STATUS_FILE:-}" ]; then
-        printf '%s\n' "$child_status" >"$NVIM_AGENT_STATUS_FILE" 2>/dev/null || true
-    fi
+    write_tmux_child_status "$child_status" || true
 
     if [ -n "${NVIM_AGENT_WAIT_CHANNEL:-}" ]; then
         tmux wait-for -S "$NVIM_AGENT_WAIT_CHANNEL" >/dev/null 2>&1 || true
     fi
 
     exit "$child_status"
+}
+
+wait_for_tmux_child_status() {
+    status_file="$1"
+    child_pane="$2"
+
+    while [ ! -s "$status_file" ]; do
+        live_pane="$(tmux display-message -p -t "$child_pane" '#{pane_id}' 2>/dev/null || true)"
+        if [ "$live_pane" != "$child_pane" ]; then
+            # The child can publish its status and exit after the loop condition
+            # was checked but before tmux reports that its pane disappeared.
+            # Recheck for a short grace period instead of turning a clean exit
+            # into status 129 and making the agent discard the edited prompt.
+            remaining_checks=20
+            while [ "$remaining_checks" -gt 0 ] && [ ! -s "$status_file" ]; do
+                sleep 0.01
+                remaining_checks=$((remaining_checks - 1))
+            done
+
+            [ -s "$status_file" ] && return 0
+            return 129
+        fi
+        sleep 0.1
+    done
+
+    return 0
+}
+
+preserve_failed_edit() {
+    failed_status="$1"
+    shift
+
+    [ "$failed_status" -ne 0 ] 2>/dev/null || return 0
+
+    recovery_dir="${NVIM_AGENT_RECOVERY_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/nvim-agent/recovery}"
+    if ! (umask 077 && mkdir -p "$recovery_dir"); then
+        return 0
+    fi
+    chmod 700 "$recovery_dir" 2>/dev/null || true
+
+    recovery_index=0
+    for edited_file in "$@"; do
+        [ -f "$edited_file" ] || continue
+        [ -s "$edited_file" ] || continue
+
+        recovery_index=$((recovery_index + 1))
+        recovery_path="$recovery_dir/edit-$(date '+%Y%m%d-%H%M%S')-$$-$recovery_index.txt"
+        if (umask 077 && cp "$edited_file" "$recovery_path"); then
+            printf '%s\n' "nvim-agent: editor exited with status $failed_status; recovered text: $recovery_path" >&2
+        fi
+    done
 }
 
 run_tmux_child() {
@@ -195,14 +261,12 @@ launch_tmux_editor() {
             return 1
         fi
     else
-        while [ ! -s "$status_file" ]; do
-            live_pane="$(tmux display-message -p -t "$child_pane" '#{pane_id}' 2>/dev/null || true)"
-            if [ "$live_pane" != "$child_pane" ]; then
-                rm -f "$status_file"
-                return 129
-            fi
-            sleep 0.1
-        done
+        wait_for_tmux_child_status "$status_file" "$child_pane"
+        wait_status=$?
+        if [ "$wait_status" -ne 0 ]; then
+            rm -f "$status_file"
+            return "$wait_status"
+        fi
     fi
 
     editor_status="$(sed -n '1p' "$status_file" 2>/dev/null || true)"
@@ -239,6 +303,7 @@ nvim_agent_tmux_started=0
 launch_tmux_editor "$@"
 editor_status=$?
 if [ "$nvim_agent_tmux_started" = 1 ]; then
+    preserve_failed_edit "$editor_status" "$@"
     exit "$editor_status"
 fi
 
