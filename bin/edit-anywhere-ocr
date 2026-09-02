@@ -1,0 +1,51 @@
+#!/usr/bin/swift
+
+import AppKit
+import Foundation
+import Vision
+
+func fail(_ message: String, code: Int32 = 1) -> Never {
+    FileHandle.standardError.write(Data((message + "\n").utf8))
+    exit(code)
+}
+
+guard CommandLine.arguments.count == 2 else {
+    fail("usage: edit-anywhere-ocr IMAGE")
+}
+
+let imagePath = CommandLine.arguments[1]
+guard let image = NSImage(contentsOfFile: imagePath) else {
+    fail("unable to read image: \(imagePath)")
+}
+
+var proposedRect = NSRect(origin: .zero, size: image.size)
+guard let cgImage = image.cgImage(forProposedRect: &proposedRect, context: nil, hints: nil) else {
+    fail("unable to decode image: \(imagePath)")
+}
+
+let request = VNRecognizeTextRequest()
+request.recognitionLevel = .accurate
+request.usesLanguageCorrection = true
+request.automaticallyDetectsLanguage = true
+request.recognitionLanguages = ["zh-Hans", "zh-Hant", "en-US"]
+request.minimumTextHeight = 0.006
+
+do {
+    try VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
+} catch {
+    fail("OCR failed: \(error)")
+}
+
+let observations = (request.results ?? []).sorted { left, right in
+    let lineTolerance = 0.012
+    if abs(left.boundingBox.midY - right.boundingBox.midY) > lineTolerance {
+        return left.boundingBox.midY > right.boundingBox.midY
+    }
+    return left.boundingBox.minX < right.boundingBox.minX
+}
+
+let lines = observations.compactMap { observation in
+    observation.topCandidates(1).first?.string
+}
+
+FileHandle.standardOutput.write(Data((lines.joined(separator: "\n") + "\n").utf8))

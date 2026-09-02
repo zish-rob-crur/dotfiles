@@ -1,0 +1,95 @@
+#!/bin/zsh
+
+# Stable Edit Anywhere editor entrypoint. Callers pass only a session ID.
+
+set -u
+set -o pipefail
+
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${PATH:-}"
+
+readonly script_dir="${0:A:h}"
+readonly supervisor="${EDIT_ANYWHERE_SERVER_BIN:-${script_dir}/edit-anywhere-server}"
+
+session_id="${1:-}"
+if [[ ! "${session_id}" =~ '^[0-9]{8}-[0-9]{6}-[A-Fa-f0-9]{8}$' ]]; then
+  print -u2 "Edit Anywhere: expected a valid session ID"
+  exit 64
+fi
+
+if [[ ! -x "${supervisor}" ]]; then
+  print -u2 "Edit Anywhere: missing server supervisor: ${supervisor}"
+  exit 127
+fi
+
+cache_root="${EDIT_ANYWHERE_CACHE_ROOT:-${HOME}/.cache/edit-anywhere}"
+socket_path="${EDIT_ANYWHERE_SERVER_SOCKET:-${cache_root}/server/nvim.sock}"
+nvim_bin="${EDIT_ANYWHERE_NVIM_BIN:-$(command -v nvim 2>/dev/null || true)}"
+if [[ -z "${nvim_bin}" || ! -x "${nvim_bin}" ]]; then
+  print -u2 "Edit Anywhere: nvim client not found"
+  exit 127
+fi
+
+# Actual warm path: parse the immutable fixed request locally, then issue one
+# headless RPC. Calling the supervisor is reserved for cold start/recovery and
+# avoids an extra zsh process in front of every remote UI.
+request_file="${cache_root}/sessions/${session_id}/request.json"
+nonce=""
+request_session=""
+protocol=""
+if [[ -f "${request_file}" && ! -L "${request_file}" ]]; then
+  request_json="$(<"${request_file}")"
+  if [[ "${request_json}" =~ '"session_id"[[:space:]]*:[[:space:]]*"([0-9]{8}-[0-9]{6}-[A-Fa-f0-9]{8})"' ]]; then
+    request_session="${match[1]}"
+  fi
+  if [[ "${request_json}" =~ '"nonce"[[:space:]]*:[[:space:]]*"([A-Za-z0-9_-]+)"' ]]; then
+    nonce="${match[1]}"
+  fi
+  if [[ "${request_json}" =~ '"protocol_version"[[:space:]]*:[[:space:]]*([0-9]+)' ]]; then
+    protocol="${match[1]}"
+  fi
+fi
+
+response=""
+if [[ "${request_session}" == "${session_id}" && "${protocol}" == 1 && \
+      ${#nonce} -ge 22 && ${#nonce} -le 256 && "${nonce}" =~ '^[A-Za-z0-9_-]+$' && \
+      -S "${socket_path}" ]]; then
+  response="$("${nvim_bin}" --headless --server "${socket_path}" --remote-expr \
+    "luaeval(\"vim.json.encode(require('edit_anywhere.server').open(_A[1], _A[2]))\", ['${session_id}', '${nonce}'])" \
+    2>/dev/null || true)"
+  if [[ "${response}" == *'"accepted":true'* ]] && \
+      [[ "${response}" == *'"state":"suspended"'* || \
+         "${response}" == *'"state":"recovery_required"'* ]]; then
+    response="$("${nvim_bin}" --headless --server "${socket_path}" --remote-expr \
+      "luaeval(\"vim.json.encode(require('edit_anywhere.server').resume(_A[1], _A[2]))\", ['${session_id}', '${nonce}'])" \
+      2>/dev/null || true)"
+  fi
+fi
+
+if [[ -z "${response}" || "${response}" == *'"reason":"SERVER_NOT_READY"'* ]]; then
+  response="$("${supervisor}" admit "${session_id}")"
+  admit_status=$?
+  if (( admit_status != 0 )); then
+    print -u2 "Edit Anywhere: dedicated Neovim server could not admit the request (${admit_status})"
+    exit "${admit_status}"
+  fi
+fi
+
+if [[ "${response}" != *'"accepted":true'* ]]; then
+  if [[ "${response}" != *'"reason":"ACCEPTED_SESSION_ORPHANED"'* && \
+        "${response}" != *'"reason":"SESSION_NOT_ACTIVE"'* ]]; then
+    [[ -n "${response}" ]] && print -u2 -r -- "Edit Anywhere: request rejected: ${response}"
+  fi
+  exit 75
+fi
+
+# A replay can observe an already-published terminal result. There is no UI to
+# attach in that case; the frontend monitor owns result delivery.
+if [[ "${response}" == *'"state":"committed"'* || \
+      "${response}" == *'"state":"cancelled"'* || \
+      "${response}" == *'"state":"failed"'* ]]; then
+  exit 0
+fi
+
+# The client exit status is intentionally not interpreted as an editing result.
+# decision.json/result.json are the only authority for the frontend.
+exec "${nvim_bin}" --server "${socket_path}" --remote-ui

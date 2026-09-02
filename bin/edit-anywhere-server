@@ -1,0 +1,810 @@
+#!/bin/zsh
+
+# Supervisor for the dedicated Edit Anywhere Neovim server.
+# This script deliberately accepts identifiers, never arbitrary session paths.
+
+set -u
+set -o pipefail
+
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${PATH:-}"
+
+readonly protocol_version=1
+readonly server_name="edit-anywhere"
+readonly cache_root="${EDIT_ANYWHERE_CACHE_ROOT:-${HOME}/.cache/edit-anywhere}"
+readonly server_dir="${cache_root}/server"
+readonly sessions_dir="${cache_root}/sessions"
+readonly state_dir="${cache_root}/nvim-state"
+readonly nvim_cache_dir="${cache_root}/nvim-cache"
+readonly tmp_dir="${cache_root}/tmp"
+readonly work_dir="${cache_root}/work"
+readonly socket_path="${EDIT_ANYWHERE_SERVER_SOCKET:-${server_dir}/nvim.sock}"
+readonly pid_path="${server_dir}/nvim.pid"
+readonly identity_path="${server_dir}/identity.json"
+readonly generation_path="${server_dir}/generation"
+readonly start_lock="${server_dir}/start.lock"
+readonly log_path="${server_dir}/server.log"
+readonly script_dir="${0:A:h}"
+readonly repo_root="${script_dir:h}"
+
+nvim_bin="${EDIT_ANYWHERE_NVIM_BIN:-}"
+runtime_root="${EDIT_ANYWHERE_RUNTIME_ROOT:-${HOME}/.local/share/edit-anywhere/nvim}"
+expected_fingerprint=""
+owns_start_lock=0
+
+log() {
+  print -u2 -r -- "Edit Anywhere server: $*"
+}
+
+die() {
+  log "$*"
+  return 1
+}
+
+now_ms() {
+  zmodload zsh/datetime 2>/dev/null || true
+  if [[ -n "${EPOCHREALTIME:-}" ]]; then
+    printf '%.0f\n' "$(( EPOCHREALTIME * 1000 ))"
+  else
+    printf '%s000\n' "$(date +%s)"
+  fi
+}
+
+random_uuid() {
+  if (( $+commands[uuidgen] )); then
+    uuidgen | tr '[:upper:]' '[:lower:]'
+  elif (( $+commands[openssl] )); then
+    openssl rand -hex 16
+  else
+    print -r -- "${EPOCHREALTIME:-$(date +%s)}-${$}-${RANDOM}-${RANDOM}"
+  fi
+}
+
+sha256_stream() {
+  if (( $+commands[shasum] )); then
+    shasum -a 256 | awk '{print $1}'
+  elif (( $+commands[sha256sum] )); then
+    sha256sum | awk '{print $1}'
+  else
+    return 127
+  fi
+}
+
+sha256_file() {
+  local file="$1"
+  if (( $+commands[shasum] )); then
+    shasum -a 256 "${file}" | awk '{print $1}'
+  elif (( $+commands[sha256sum] )); then
+    sha256sum "${file}" | awk '{print $1}'
+  else
+    return 127
+  fi
+}
+
+current_uid() {
+  id -u
+}
+
+file_uid() {
+  local file_path="$1"
+  if stat -f '%u' "${file_path}" >/dev/null 2>&1; then
+    stat -f '%u' "${file_path}"
+  else
+    stat -c '%u' "${file_path}"
+  fi
+}
+
+secure_dir() {
+  local dir_path="$1"
+  if [[ -L "${dir_path}" ]]; then
+    log "refusing symlinked runtime directory: ${dir_path}"
+    return 1
+  fi
+  mkdir -p -m 700 "${dir_path}" || return 1
+  chmod 700 "${dir_path}" || return 1
+  [[ "$(file_uid "${dir_path}")" == "$(current_uid)" ]] || {
+    log "runtime directory is not owned by the current user: ${dir_path}"
+    return 1
+  }
+}
+
+prepare_runtime_dirs() {
+  secure_dir "${cache_root}" || return 1
+  local dir_path
+  for dir_path in "${server_dir}" "${sessions_dir}" "${state_dir}" \
+    "${nvim_cache_dir}" "${tmp_dir}" "${work_dir}"; do
+    secure_dir "${dir_path}" || return 1
+  done
+}
+
+runtime_dirs_exist() {
+  [[ -d "${cache_root}" && ! -L "${cache_root}" && \
+     -d "${server_dir}" && ! -L "${server_dir}" && \
+     -d "${sessions_dir}" && ! -L "${sessions_dir}" && \
+     -d "${state_dir}" && ! -L "${state_dir}" && \
+     -d "${nvim_cache_dir}" && ! -L "${nvim_cache_dir}" && \
+     -d "${tmp_dir}" && ! -L "${tmp_dir}" && \
+     -d "${work_dir}" && ! -L "${work_dir}" ]]
+}
+
+resolve_binaries_and_runtime() {
+  if [[ -z "${nvim_bin}" ]]; then
+    nvim_bin="$(command -v nvim 2>/dev/null || true)"
+  fi
+  [[ -n "${nvim_bin}" && -x "${nvim_bin}" ]] || {
+    log "nvim was not found"
+    return 1
+  }
+  if [[ ! -d "${runtime_root}" ]]; then
+    runtime_root="${repo_root}/edit-anywhere/nvim"
+  fi
+  [[ -d "${runtime_root}" ]] || {
+    log "runtime was not found: ${runtime_root}"
+    return 1
+  }
+  runtime_root="${runtime_root:A}"
+}
+
+fingerprint_tree() {
+  local root="$1"
+  [[ -d "${root}" ]] || return 0
+  find -L "${root}" -type f ! -path '*/.git/*' -print 2>/dev/null | LC_ALL=C sort | while IFS= read -r file; do
+    print -r -- "${file#${root}/}"
+    command cat -- "${file}"
+    print
+  done
+}
+
+compute_fingerprint() {
+  resolve_binaries_and_runtime || return 1
+  local config_root="${XDG_CONFIG_HOME:-${HOME}/.config}/nvim"
+  [[ -e "${config_root}" ]] && config_root="${config_root:A}"
+  {
+    print -r -- "protocol=${protocol_version}"
+    "${nvim_bin}" --version 2>/dev/null | head -n 1
+    fingerprint_tree "${runtime_root}"
+    fingerprint_tree "${config_root}"
+  } | sha256_stream
+}
+
+ensure_expected_fingerprint() {
+  if [[ -z "${expected_fingerprint}" ]]; then
+    local cached=""
+    if [[ -f "${identity_path}" && ! -L "${identity_path}" ]]; then
+      local cached_identity="$(<"${identity_path}")"
+      if [[ "${cached_identity}" =~ '"config_fingerprint"[[:space:]]*:[[:space:]]*"([0-9a-f]{64})"' ]]; then
+        cached="${match[1]}"
+      fi
+      if [[ "${cached}" =~ '^[0-9a-f]{64}$' ]]; then
+        resolve_binaries_and_runtime || return 1
+        local config_root="${XDG_CONFIG_HOME:-${HOME}/.config}/nvim"
+        [[ -e "${config_root}" ]] && config_root="${config_root:A}"
+        local changed=""
+        changed="$(find -L "${runtime_root}" "${config_root}" -type f \
+          -newer "${identity_path}" -print -quit 2>/dev/null || true)"
+        [[ -z "${changed}" ]] && expected_fingerprint="${cached}"
+      fi
+    fi
+    if [[ -z "${expected_fingerprint}" ]]; then
+      expected_fingerprint="$(compute_fingerprint)" || return 1
+    fi
+    [[ "${expected_fingerprint}" =~ '^[0-9a-f]{64}$' ]] || {
+      log "unable to compute config fingerprint"
+      return 1
+    }
+  fi
+}
+
+json_file_value() {
+  local file_path="$1"
+  local field="$2"
+  local value="" data=""
+  if [[ -f "${file_path}" && ! -L "${file_path}" ]]; then
+    data="$(<"${file_path}")"
+    if [[ "${data}" =~ '"'"${field}"'"[[:space:]]*:[[:space:]]*"([^"\\]*)"' ]]; then
+      value="${match[1]}"
+    elif [[ "${data}" =~ '"'"${field}"'"[[:space:]]*:[[:space:]]*(-?[0-9]+)' ]]; then
+      value="${match[1]}"
+    fi
+  fi
+  print -r -- "${value}"
+}
+
+valid_session_id() {
+  [[ "$1" =~ '^[0-9]{8}-[0-9]{6}-[A-Fa-f0-9]{8}$' ]]
+}
+
+valid_nonce() {
+  [[ ${#1} -ge 22 && ${#1} -le 256 && "$1" =~ '^[A-Za-z0-9_-]+$' ]]
+}
+
+session_dir_for_id() {
+  local session_id="$1"
+  valid_session_id "${session_id}" || return 1
+  local session_path="${sessions_dir}/${session_id}"
+  [[ "${session_path:A}" == "${sessions_dir:A}/${session_id}" ]] || return 1
+  print -r -- "${session_path}"
+}
+
+load_request_nonce() {
+  local session_id="$1"
+  local session_dir request_path request_session nonce protocol
+  session_dir="$(session_dir_for_id "${session_id}")" || return 1
+  request_path="${session_dir}/request.json"
+  [[ -f "${request_path}" && ! -L "${request_path}" ]] || return 1
+  local request_json="$(<"${request_path}")"
+  if [[ "${request_json}" =~ '"session_id"[[:space:]]*:[[:space:]]*"([0-9]{8}-[0-9]{6}-[A-Fa-f0-9]{8})"' ]]; then
+    request_session="${match[1]}"
+  fi
+  if [[ "${request_json}" =~ '"nonce"[[:space:]]*:[[:space:]]*"([A-Za-z0-9_-]+)"' ]]; then
+    nonce="${match[1]}"
+  fi
+  if [[ "${request_json}" =~ '"protocol_version"[[:space:]]*:[[:space:]]*([0-9]+)' ]]; then
+    protocol="${match[1]}"
+  fi
+  [[ "${request_session}" == "${session_id}" && "${protocol}" == "${protocol_version}" ]] || return 1
+  valid_nonce "${nonce}" || return 1
+  print -r -- "${nonce}"
+}
+
+atomic_write() {
+  local target="$1"
+  local content="$2"
+  local parent="${target:h}"
+  local temp="${parent}/.${target:t}.tmp.${$}.${RANDOM}"
+  umask 077
+  print -r -- "${content}" >| "${temp}" || return 1
+  chmod 600 "${temp}" || { rm -f -- "${temp}"; return 1; }
+  mv -f "${temp}" "${target}"
+}
+
+publish_no_replace() {
+  local target="$1"
+  local content="$2"
+  local parent="${target:h}"
+  local temp="${parent}/.${target:t}.tmp.${$}.${RANDOM}"
+  umask 077
+  print -r -- "${content}" >| "${temp}" || return 1
+  chmod 600 "${temp}" || { rm -f -- "${temp}"; return 1; }
+  if ln "${temp}" "${target}" 2>/dev/null; then
+    rm -f -- "${temp}"
+    return 0
+  fi
+  rm -f -- "${temp}"
+  return 17
+}
+
+publish_supervisor_rejection() {
+  local session_id="$1"
+  local nonce session_dir decision fingerprint timestamp
+  nonce="$(load_request_nonce "${session_id}")" || {
+    log "cannot publish rejection for an invalid request: ${session_id}"
+    return 1
+  }
+  session_dir="$(session_dir_for_id "${session_id}")" || return 1
+  ensure_expected_fingerprint || return 1
+  fingerprint="${expected_fingerprint}"
+  timestamp="$(now_ms)"
+  decision="{\"protocol_version\":1,\"session_id\":\"${session_id}\",\"nonce\":\"${nonce}\",\"outcome\":\"rejected\",\"reason\":\"DECISION_LOST\",\"fallback_allowed\":false,\"writer\":\"supervisor\",\"server_uuid\":null,\"generation\":null,\"config_fingerprint\":\"${fingerprint}\",\"decided_at_unix_ms\":${timestamp}}"
+  local decision_path="${session_dir}/decision.json"
+  if publish_no_replace "${decision_path}" "${decision}"; then
+    return 0
+  fi
+  [[ -f "${decision_path}" && ! -L "${decision_path}" ]] || return 1
+  local existing="$(<"${decision_path}")"
+  [[ "$(json_file_value "${decision_path}" protocol_version)" == 1 && \
+     "$(json_file_value "${decision_path}" session_id)" == "${session_id}" && \
+     "$(json_file_value "${decision_path}" nonce)" == "${nonce}" && \
+     "$(json_file_value "${decision_path}" outcome)" == rejected && \
+     "$(json_file_value "${decision_path}" reason)" == DECISION_LOST && \
+     "$(json_file_value "${decision_path}" writer)" == supervisor && \
+     "$(json_file_value "${decision_path}" config_fingerprint)" == "${fingerprint}" && \
+     "${existing}" =~ '"fallback_allowed"[[:space:]]*:[[:space:]]*false' && \
+     "${existing}" =~ '"server_uuid"[[:space:]]*:[[:space:]]*null' && \
+     "${existing}" =~ '"generation"[[:space:]]*:[[:space:]]*null' ]] && return 0
+  log "terminal conflict while publishing ${decision_path}"
+  return 76
+}
+
+pid_is_alive() {
+  local pid="$1"
+  [[ "${pid}" == <1-> ]] || return 1
+  kill -0 "${pid}" 2>/dev/null
+}
+
+pid_is_ours() {
+  local pid="$1"
+  pid_is_alive "${pid}" || return 1
+  local owner command_line
+  owner="$(ps -o uid= -p "${pid}" 2>/dev/null | tr -d '[:space:]')"
+  [[ "${owner}" == "$(current_uid)" ]] || return 1
+  command_line="$(ps -o command= -p "${pid}" 2>/dev/null || true)"
+  [[ "${command_line}" == *nvim* && "${command_line}" == *edit_anywhere_server* ]]
+}
+
+read_pid() {
+  local pid=""
+  [[ -f "${pid_path}" && ! -L "${pid_path}" ]] || return 1
+  IFS= read -r pid < "${pid_path}" || return 1
+  [[ "${pid}" == <1-> ]] || return 1
+  print -r -- "${pid}"
+}
+
+rpc() {
+  local method="$1"
+  local args_json='{}'
+  (( $# >= 2 )) && args_json="$2"
+  resolve_binaries_and_runtime || return 1
+  [[ -S "${socket_path}" ]] || return 1
+  "${nvim_bin}" --headless --server "${socket_path}" --remote-expr \
+    "luaeval(\"vim.json.encode(vim.json.decode(_A).result)\", v:lua.edit_anywhere_rpc_json('${method}', '${args_json}'))" 2>/dev/null
+}
+
+rpc_probe() {
+  resolve_binaries_and_runtime || return 1
+  [[ -S "${socket_path}" ]] || return 1
+  "${nvim_bin}" --headless --server "${socket_path}" --remote-expr \
+    "luaeval(\"vim.json.encode({identity=require('edit_anywhere.server').identity(),health=require('edit_anywhere.server').health()})\")" 2>/dev/null
+}
+
+identity_is_dedicated() {
+  local identity="$1"
+  [[ "${identity}" == *'"name":"edit-anywhere"'* && \
+     "${identity}" == *'"protocol_version":1'* && \
+     "${identity}" == *'"server_uuid":"'* && \
+     "${identity}" == *'"generation":'* ]]
+}
+
+identity_matches_expected() {
+  local identity="$1"
+  ensure_expected_fingerprint || return 1
+  identity_is_dedicated "${identity}" || return 1
+  [[ "${identity}" == *"\"config_fingerprint\":\"${expected_fingerprint}\""* ]]
+}
+
+health_is_healthy() {
+  local health="$1"
+  [[ "${health}" == *'"prewarmed":true'* && \
+     "${health}" == *'"adapters_ok":true'* && \
+     "${health}" == *'"layout_ok":true'* && \
+     "${health}" != *'"state":"DEGRADED"'* && \
+     "${health}" != *'"state":"CRASHED"'* && \
+     "${health}" != *'"state":"STOPPING"'* ]]
+}
+
+health_is_idle_ready() {
+  local health="$1"
+  health_is_healthy "${health}" && [[ "${health}" == *'"state":"IDLE"'* ]]
+}
+
+write_identity_snapshot() {
+  local identity="$1"
+  atomic_write "${identity_path}" "${identity}"
+}
+
+health_command() {
+  prepare_runtime_dirs || return 1
+  ensure_expected_fingerprint || return 1
+  local identity health
+  identity="$(rpc identity '{}')" || return 1
+  identity_matches_expected "${identity}" || return 1
+  health="$(rpc health '{}')" || return 1
+  health_is_healthy "${health}" || return 1
+  write_identity_snapshot "${identity}" >/dev/null 2>&1 || true
+  print -r -- "${health}"
+}
+
+next_generation() {
+  local old=0
+  if [[ -f "${generation_path}" && ! -L "${generation_path}" ]]; then
+    IFS= read -r old < "${generation_path}" || old=0
+  fi
+  [[ "${old}" == <0-> ]] || old=0
+  local next=$(( old + 1 ))
+  atomic_write "${generation_path}" "${next}" || return 1
+  print -r -- "${next}"
+}
+
+release_start_lock() {
+  if (( owns_start_lock )); then
+    rm -f -- "${start_lock}/owner.json"
+    rmdir -- "${start_lock}" 2>/dev/null || true
+    owns_start_lock=0
+  fi
+}
+
+start_lock_is_safely_stale() {
+  [[ -d "${start_lock}" && ! -L "${start_lock}" ]] || return 1
+  [[ -z "$(rpc identity '{}' 2>/dev/null || true)" ]] || return 1
+  local server_pid=""
+  server_pid="$(read_pid 2>/dev/null || true)"
+  [[ -z "${server_pid}" ]] || ! pid_is_alive "${server_pid}" || return 1
+  local owner_pid=""
+  if [[ -f "${start_lock}/owner.json" && ! -L "${start_lock}/owner.json" ]]; then
+    owner_pid="$(json_file_value "${start_lock}/owner.json" pid)"
+  fi
+  [[ -z "${owner_pid}" ]] || ! pid_is_alive "${owner_pid}" || return 1
+  local modified now
+  if stat -f '%m' "${start_lock}" >/dev/null 2>&1; then
+    modified="$(stat -f '%m' "${start_lock}")"
+  else
+    modified="$(stat -c '%Y' "${start_lock}")"
+  fi
+  now="$(date +%s)"
+  [[ "${modified}" == <0-> && $(( now - modified )) -ge 2 ]]
+}
+
+acquire_start_lock() {
+  if mkdir -m 700 "${start_lock}" 2>/dev/null; then
+    owns_start_lock=1
+    atomic_write "${start_lock}/owner.json" \
+      "{\"pid\":${$},\"claimed_at_unix_ms\":$(now_ms)}" || {
+      release_start_lock
+      return 1
+    }
+    return 0
+  fi
+  wait_until_ready 30 >/dev/null && return 2
+  if start_lock_is_safely_stale; then
+    rm -f -- "${start_lock}/owner.json"
+    rmdir -- "${start_lock}" 2>/dev/null || return 1
+    if mkdir -m 700 "${start_lock}" 2>/dev/null; then
+      owns_start_lock=1
+      atomic_write "${start_lock}/owner.json" \
+        "{\"pid\":${$},\"claimed_at_unix_ms\":$(now_ms)}" || {
+        release_start_lock
+        return 1
+      }
+      return 0
+    fi
+  fi
+  return 1
+}
+
+wait_until_ready() {
+  local attempts="${1:-30}"
+  local index health
+  for (( index = 1; index <= attempts; index++ )); do
+    health="$(health_command 2>/dev/null)" && {
+      print -r -- "${health}"
+      return 0
+    }
+    sleep 0.05
+  done
+  return 1
+}
+
+clean_dead_runtime_files() {
+  local pid=""
+  pid="$(read_pid 2>/dev/null || true)"
+  if [[ -n "${pid}" ]] && pid_is_alive "${pid}"; then
+    return 1
+  fi
+  rm -f -- "${pid_path}" "${identity_path}"
+  [[ -S "${socket_path}" ]] && rm -f -- "${socket_path}"
+  return 0
+}
+
+start_command() {
+  prepare_runtime_dirs || return 70
+  resolve_binaries_and_runtime || return 70
+  ensure_expected_fingerprint || return 70
+  local current_identity=""
+  current_identity="$(rpc identity '{}' 2>/dev/null || true)"
+  if [[ -n "${current_identity}" ]]; then
+    if identity_matches_expected "${current_identity}"; then
+      wait_until_ready 1 >/dev/null && return 0
+      log "dedicated server is reachable but not idle/ready"
+      return 72
+    fi
+    if identity_is_dedicated "${current_identity}"; then
+      log "dedicated server has a different config fingerprint"
+      return 73
+    fi
+    log "socket belongs to a different Neovim server; refusing to replace it"
+    return 74
+  fi
+  acquire_start_lock
+  local lock_status=$?
+  if (( lock_status == 2 )); then
+    return 0
+  fi
+  if (( lock_status != 0 )); then
+    log "timed out waiting for another supervisor to start the server"
+    return 71
+  fi
+  trap release_start_lock EXIT INT TERM HUP
+  current_identity="$(rpc identity '{}' 2>/dev/null || true)"
+  if [[ -n "${current_identity}" ]] && identity_matches_expected "${current_identity}"; then
+    release_start_lock
+    trap - EXIT INT TERM HUP
+    return 0
+  fi
+  local stale_pid=""
+  stale_pid="$(read_pid 2>/dev/null || true)"
+  if [[ -n "${stale_pid}" ]] && pid_is_alive "${stale_pid}"; then
+    if pid_is_ours "${stale_pid}"; then
+      if wait_until_ready 30 >/dev/null; then
+        release_start_lock
+        trap - EXIT INT TERM HUP
+        return 0
+      fi
+      log "a matching server process exists but did not become ready"
+      release_start_lock
+      trap - EXIT INT TERM HUP
+      return 71
+    fi
+    log "pid file points to a process that cannot be safely identified"
+    release_start_lock
+    trap - EXIT INT TERM HUP
+    return 74
+  fi
+  clean_dead_runtime_files || {
+    release_start_lock
+    trap - EXIT INT TERM HUP
+    return 74
+  }
+  local generation server_uuid keeper_path
+  generation="$(next_generation)" || {
+    release_start_lock
+    trap - EXIT INT TERM HUP
+    return 70
+  }
+  server_uuid="$(random_uuid)"
+  keeper_path="${tmp_dir}/keeper.tmp"
+  : >| "${keeper_path}" || {
+    release_start_lock
+    trap - EXIT INT TERM HUP
+    return 70
+  }
+  chmod 600 "${keeper_path}"
+  umask 077
+  nohup env \
+    XDG_STATE_HOME="${state_dir}" \
+    XDG_CACHE_HOME="${nvim_cache_dir}" \
+    TMPDIR="${tmp_dir}" \
+    NVIM_EDIT_ANYWHERE_SERVER=1 \
+    EDIT_ANYWHERE_CACHE_ROOT="${cache_root}" \
+    EDIT_ANYWHERE_SERVER_UUID="${server_uuid}" \
+    EDIT_ANYWHERE_SERVER_GENERATION="${generation}" \
+    EDIT_ANYWHERE_CONFIG_FINGERPRINT="${expected_fingerprint}" \
+    DOTAGENT_EDITOR_PROMPT="${DOTAGENT_EDITOR_PROMPT:-1}" \
+    DOTAGENT_AGENT="${DOTAGENT_AGENT:-codex}" \
+    "${nvim_bin}" -i NONE --headless \
+      --cmd "let g:edit_anywhere_server=1" \
+      --cmd "execute 'cd ' . fnameescape('${work_dir}')" \
+      --cmd "execute 'set runtimepath^=' . fnameescape('${runtime_root}')" \
+      --cmd "lua require('edit_anywhere.bootstrap').early()" \
+      --listen "${socket_path}" \
+      -c "lua require('edit_anywhere.server').start()" \
+      -- "${keeper_path}" </dev/null >>"${log_path}" 2>&1 &
+  local server_pid=$!
+  atomic_write "${pid_path}" "${server_pid}" || {
+    kill "${server_pid}" 2>/dev/null || true
+    release_start_lock
+    trap - EXIT INT TERM HUP
+    return 70
+  }
+  if wait_until_ready 30 >/dev/null; then
+    release_start_lock
+    trap - EXIT INT TERM HUP
+    return 0
+  fi
+  log "server did not become ready within the startup deadline; see ${log_path}"
+  release_start_lock
+  trap - EXIT INT TERM HUP
+  return 71
+}
+
+ensure_command() {
+  runtime_dirs_exist || prepare_runtime_dirs || return 70
+  resolve_binaries_and_runtime || return 70
+  ensure_expected_fingerprint || return 70
+  local probe=""
+  probe="$(rpc_probe 2>/dev/null || true)"
+  if [[ -n "${probe}" ]]; then
+    if identity_matches_expected "${probe}"; then
+      if health_is_healthy "${probe}"; then
+        return 0
+      fi
+      log "server is reachable but not idle and ready"
+      return 72
+    fi
+    if identity_is_dedicated "${probe}"; then
+      if [[ "${probe}" == *'"state":"IDLE"'* ]]; then
+        log "config changed; restarting idle dedicated server"
+        stop_command >/dev/null || return 73
+        start_command
+        return $?
+      fi
+      log "config changed while the dedicated server is busy"
+      return 73
+    fi
+    log "socket identity mismatch"
+    return 74
+  fi
+  start_command
+}
+
+admit_command() {
+  local session_id="$1"
+  valid_session_id "${session_id}" || return 64
+  # Warm path: the dispatcher already prewarmed the server, so admission is one
+  # direct idempotent RPC. Health/fingerprint checks remain on the cold path.
+  local response
+  response="$(rpc_session_command open "${session_id}" 2>/dev/null || true)"
+  if [[ "${response}" == *'"accepted":true'* ]] && \
+      [[ "${response}" == *'"state":"suspended"'* || \
+         "${response}" == *'"state":"recovery_required"'* ]]; then
+    response="$(rpc_session_command resume "${session_id}" 2>/dev/null || true)"
+  fi
+  if [[ -n "${response}" && "${response}" != *'"reason":"SERVER_NOT_READY"'* ]]; then
+    print -r -- "${response}"
+    return 0
+  fi
+  # Cold/recovery path: prove or start the dedicated server and retry the same
+  # session/nonce. A missing post-ensure response fails closed.
+  ensure_command
+  local ensure_rc=$?
+  if (( ensure_rc != 0 )); then
+    if (( ensure_rc == 70 || ensure_rc == 71 )); then
+      publish_supervisor_rejection "${session_id}" >/dev/null 2>&1 || true
+    fi
+    return "${ensure_rc}"
+  fi
+  response="$(rpc_session_command open "${session_id}" 2>/dev/null || true)"
+  if [[ -z "${response}" ]]; then
+    if rpc identity '{}' >/dev/null 2>&1; then
+      response="$(rpc_session_command open "${session_id}" 2>/dev/null || true)"
+    else
+      publish_supervisor_rejection "${session_id}" >/dev/null 2>&1 || true
+    fi
+  fi
+  if [[ "${response}" == *'"accepted":true'* ]] && \
+      [[ "${response}" == *'"state":"suspended"'* || \
+         "${response}" == *'"state":"recovery_required"'* ]]; then
+    response="$(rpc_session_command resume "${session_id}" 2>/dev/null || true)"
+  fi
+  [[ -n "${response}" ]] || return 75
+  print -r -- "${response}"
+}
+
+stop_command() {
+  local abort_active="${1:-false}"
+  prepare_runtime_dirs || return 1
+  local identity health args response pid
+  identity="$(rpc identity '{}' 2>/dev/null || true)"
+  identity_is_dedicated "${identity}" || {
+    log "no identity-confirmed dedicated server is running"
+    return 1
+  }
+  health="$(rpc health '{}' 2>/dev/null || true)"
+  if [[ "${health}" != *'"state":"IDLE"'* && "${abort_active}" != true ]]; then
+    log "refusing to stop an active session without --abort-active"
+    return 2
+  fi
+  if [[ "${abort_active}" == true ]]; then
+    args='{"abort_active":true,"reason":"SUPERVISOR_RESTART"}'
+  else
+    args='{"abort_active":false}'
+  fi
+  response="$(rpc shutdown "${args}" 2>/dev/null || true)"
+  [[ -n "${response}" ]] || return 1
+  pid="$(read_pid 2>/dev/null || true)"
+  local index
+  for (( index = 1; index <= 30; index++ )); do
+    [[ -z "${pid}" ]] || pid_is_alive "${pid}" || break
+    sleep 0.05
+  done
+  if [[ -n "${pid}" ]] && pid_is_alive "${pid}" && pid_is_ours "${pid}"; then
+    kill "${pid}" 2>/dev/null || true
+  fi
+  local final_wait
+  for (( final_wait = 1; final_wait <= 20; final_wait++ )); do
+    [[ -z "${pid}" ]] || pid_is_alive "${pid}" || break
+    sleep 0.05
+  done
+  if [[ -n "${pid}" ]] && pid_is_alive "${pid}"; then
+    log "server did not stop"
+    return 1
+  fi
+  clean_dead_runtime_files || true
+  return 0
+}
+
+rpc_session_command() {
+  local method="$1"
+  local session_id="$2"
+  local nonce="${3:-}"
+  valid_session_id "${session_id}" || {
+    log "invalid session id"
+    return 64
+  }
+  if [[ -z "${nonce}" ]]; then
+    nonce="$(load_request_nonce "${session_id}")" || {
+      log "invalid or missing request for ${session_id}"
+      return 65
+    }
+  fi
+  valid_nonce "${nonce}" || {
+    log "invalid nonce"
+    return 65
+  }
+  rpc "${method}" "{\"session_id\":\"${session_id}\",\"nonce\":\"${nonce}\"}"
+}
+
+usage() {
+  print -u2 -r -- "usage: edit-anywhere-server ensure|admit|health|start|stop|restart|status|identity|open|resume|abort|socket"
+}
+
+main() {
+  local command="${1:-}"
+  case "${command}" in
+    ensure)
+      ensure_command
+      ;;
+    admit)
+      [[ -n "${2:-}" ]] || { usage; return 64; }
+      admit_command "$2"
+      ;;
+    health)
+      health_command
+      ;;
+    start)
+      start_command
+      ;;
+    stop)
+      shift
+      [[ "${1:-}" == "--abort-active" ]] && stop_command true || stop_command false
+      ;;
+    restart)
+      shift
+      local abort=false
+      [[ "${1:-}" == "--abort-active" ]] && abort=true
+      stop_command "${abort}" || {
+        # A missing server is a valid starting point; a reachable active server is not.
+        local identity="$(rpc identity '{}' 2>/dev/null || true)"
+        [[ -z "${identity}" ]] || return 1
+      }
+      expected_fingerprint=""
+      start_command
+      ;;
+    identity)
+      rpc identity '{}'
+      ;;
+    status)
+      if [[ -n "${2:-}" ]]; then
+        valid_session_id "$2" || return 64
+        rpc status "{\"session_id\":\"$2\"}"
+      else
+        rpc status '{}'
+      fi
+      ;;
+    open|resume)
+      [[ -n "${2:-}" ]] || { usage; return 64; }
+      rpc_session_command "${command}" "$2" "${3:-}"
+      ;;
+    abort)
+      [[ -n "${2:-}" ]] || { usage; return 64; }
+      local session_id="$2"
+      local nonce="${3:-}"
+      [[ -n "${nonce}" ]] || nonce="$(load_request_nonce "${session_id}")" || return 65
+      rpc abort "{\"session_id\":\"${session_id}\",\"nonce\":\"${nonce}\",\"reason\":\"SUPERVISOR_ABORT\"}"
+      ;;
+    reject)
+      [[ -n "${2:-}" ]] || { usage; return 64; }
+      publish_supervisor_rejection "$2"
+      ;;
+    socket)
+      print -r -- "${socket_path}"
+      ;;
+    fingerprint)
+      compute_fingerprint
+      ;;
+    *)
+      usage
+      return 64
+      ;;
+  esac
+}
+
+main "$@"

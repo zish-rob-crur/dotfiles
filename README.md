@@ -1,5 +1,14 @@
 # dotfiles
 
+## Edit Anywhere
+
+The reusable Hammerspoon, Ghostty Quick Terminal, OCR, and persistent Neovim
+Server integration lives in this repository. See
+[`edit-anywhere/README.md`](edit-anywhere/README.md) for installation and
+operation, and
+[`docs/edit-anywhere-neovim-server.md`](docs/edit-anywhere-neovim-server.md)
+for the protocol and safety design.
+
 ## Bootstrap
 
 ```shell

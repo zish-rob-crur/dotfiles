@@ -230,6 +230,13 @@ if [ "$MODE" = "update" ]; then
 fi
 ensure_submodules "$DOTFILES_REPO"
 ensure_dotfiles_links "$DOTFILES_REPO"
+if [ "$(uname -s)" = "Darwin" ]; then
+  edit_anywhere_args=(--dotfiles-repo "$DOTFILES_REPO")
+  if (( DRY_RUN )); then
+    edit_anywhere_args+=(--dry-run)
+  fi
+  "${DOTFILES_REPO}/scripts/install_edit_anywhere.sh" "${edit_anywhere_args[@]}"
+fi
 ensure_tpm
 ensure_git_repo "$ASTRO_REPO" "$ASTRO_REMOTE" "AstroNvim"
 if [ "$MODE" = "update" ]; then

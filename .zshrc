@@ -1,3 +1,7 @@
+if [[ -n "${GHOSTTY_QUICK_TERMINAL:-}" && -x "${HOME}/.local/bin/edit-anywhere-quick-terminal" ]]; then
+  exec "${HOME}/.local/bin/edit-anywhere-quick-terminal"
+fi
+
 if [[ "$TERM_PROGRAM" == "vscode" ]]; then
     unset RPROMPT
     typeset -g POWERLEVEL9K_DISABLE_RPROMPT=true

@@ -35,7 +35,7 @@ capture_shell_context() {
             ;;
     esac
 
-    [ -z "${NVIM_PRE_SHELL_CONTEXT:-}" ] || return 0
+    [ -z "${NVIM_EXTERNAL_CONTEXT_FILE:-}" ] || return 0
     [ "${NVIM_AGENT_SHELL_CONTEXT:-1}" != "0" ] || return 0
     [ -n "${TMUX:-}" ] || return 0
     command -v tmux >/dev/null 2>&1 || return 0
@@ -57,8 +57,9 @@ capture_shell_context() {
     fi
 
     if [ -s "$context_file" ]; then
-        export NVIM_PRE_SHELL_CONTEXT="$context_file"
-        export NVIM_PRE_SHELL_CONTEXT_DELETE=1
+        export NVIM_EXTERNAL_CONTEXT_FILE="$context_file"
+        export NVIM_EXTERNAL_CONTEXT_DELETE=1
+        export NVIM_EXTERNAL_CONTEXT_SOURCE=tmux-shell
     else
         rm -f "$context_file"
     fi
@@ -218,8 +219,9 @@ launch_tmux_editor() {
         "DOTAGENT_EDITOR_PROMPT=${DOTAGENT_EDITOR_PROMPT:-}" \
         "DOTAGENT_AGENT=${DOTAGENT_AGENT:-}" \
         "DOTAGENT_PREFIX=${DOTAGENT_PREFIX:-}" \
-        "NVIM_PRE_SHELL_CONTEXT=${NVIM_PRE_SHELL_CONTEXT:-}" \
-        "NVIM_PRE_SHELL_CONTEXT_DELETE=${NVIM_PRE_SHELL_CONTEXT_DELETE:-}"
+        "NVIM_EXTERNAL_CONTEXT_FILE=${NVIM_EXTERNAL_CONTEXT_FILE:-}" \
+        "NVIM_EXTERNAL_CONTEXT_DELETE=${NVIM_EXTERNAL_CONTEXT_DELETE:-}" \
+        "NVIM_EXTERNAL_CONTEXT_SOURCE=${NVIM_EXTERNAL_CONTEXT_SOURCE:-}"
     do
         child_command="$child_command $(shell_quote "$assignment")"
     done

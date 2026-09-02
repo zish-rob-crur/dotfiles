@@ -143,4 +143,6 @@ ensure_executable "${DOTFILES_DIR}/tmux/assistant-launcher.sh"
 ensure_executable "${DOTFILES_DIR}/tmux/assistant-spymux.sh"
 ensure_executable "${DOTFILES_DIR}/tmux/restart-assistant-panes.py"
 
+"${DOTFILES_DIR}/scripts/install_edit_anywhere.sh" --dotfiles-repo "${DOTFILES_DIR}"
+
 install_tpm

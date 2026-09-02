@@ -1,0 +1,128 @@
+#!/bin/zsh
+
+set -u
+set -o pipefail
+
+cache_dir="${EDIT_ANYWHERE_CACHE_ROOT:-${HOME}/.cache/edit-anywhere}"
+request_fifo="${cache_dir}/quick-terminal.fifo"
+runner="${EDIT_ANYWHERE_NVIM_BIN_ENTRY:-${HOME}/.local/bin/edit-anywhere-nvim}"
+supervisor="${EDIT_ANYWHERE_SERVER_BIN:-${HOME}/.local/bin/edit-anywhere-server}"
+terminal_title="__EDIT_ANYWHERE_QUICK_TERMINAL__"
+active_title_prefix="__EDIT_ANYWHERE_SESSION__:"
+sessions_dir="${cache_dir}/sessions"
+owner_file="${cache_dir}/frontend.lock/owner.json"
+
+umask 077
+mkdir -p -m 700 "${cache_dir}" "${sessions_dir}"
+chmod 700 "${cache_dir}" "${sessions_dir}"
+
+if [[ -e "${request_fifo}" && ! -p "${request_fifo}" ]]; then
+  print -u2 "Edit Anywhere: ${request_fifo} exists but is not a named pipe"
+  exit 1
+fi
+
+if [[ ! -p "${request_fifo}" ]]; then
+  mkfifo "${request_fifo}" || exit 1
+fi
+chmod 600 "${request_fifo}"
+
+now_ms() {
+  zmodload zsh/datetime 2>/dev/null || true
+  if [[ -n "${EPOCHREALTIME:-}" ]]; then
+    printf '%.0f\n' "$(( EPOCHREALTIME * 1000 ))"
+  else
+    printf '%s000\n' "$(date +%s)"
+  fi
+}
+
+json_value() {
+  local file_path="$1"
+  local field="$2"
+  local value="" data=""
+  if [[ -f "${file_path}" && ! -L "${file_path}" ]]; then
+    data="$(<"${file_path}")"
+    if [[ "${data}" =~ '"'"${field}"'"[[:space:]]*:[[:space:]]*"([^"\\]*)"' ]]; then
+      value="${match[1]}"
+    elif [[ "${data}" =~ '"'"${field}"'"[[:space:]]*:[[:space:]]*(-?[0-9]+)' ]]; then
+      value="${match[1]}"
+    fi
+  fi
+  print -r -- "${value}"
+}
+
+atomic_write() {
+  local target="$1"
+  local content="$2"
+  local temp="${target:h}/.${target:t}.tmp.${$}.${RANDOM}"
+  print -r -- "${content}" >| "${temp}" || return 1
+  chmod 600 "${temp}" || { rm -f -- "${temp}"; return 1; }
+  mv -f "${temp}" "${target}"
+}
+
+set_terminal_title() {
+  print -n -- $'\e]0;'"${terminal_title}"$'\a'
+}
+
+set_session_title() {
+  print -n -- $'\e]0;'"${active_title_prefix}${1}"$'\a'
+}
+
+record_dispatch_ack() {
+  local session_id="$1"
+  local metrics_dir="${sessions_dir}/${session_id}/metrics"
+  [[ -d "${sessions_dir}/${session_id}" && ! -L "${sessions_dir}/${session_id}" ]] || return 1
+  mkdir -p -m 700 "${metrics_dir}" || return 1
+  chmod 700 "${metrics_dir}"
+  atomic_write "${metrics_dir}/dispatcher.json" \
+    "{\"protocol_version\":1,\"session_id\":\"${session_id}\",\"dispatch_ack_at_unix_ms\":$(now_ms),\"dispatcher_pid\":${$}}"
+}
+
+owner_matches_session() {
+  local session_id="$1"
+  local request_file="${sessions_dir}/${session_id}/request.json"
+  [[ -f "${owner_file}" && ! -L "${owner_file}" ]] || return 1
+  [[ -f "${request_file}" && ! -L "${request_file}" ]] || return 1
+  local owner_session owner_nonce request_session request_nonce
+  owner_session="$(json_value "${owner_file}" session_id)"
+  owner_nonce="$(json_value "${owner_file}" nonce)"
+  request_session="$(json_value "${request_file}" session_id)"
+  request_nonce="$(json_value "${request_file}" nonce)"
+  [[ "${owner_session}" == "${session_id}" && \
+     "${request_session}" == "${session_id}" && \
+     -n "${owner_nonce}" && "${owner_nonce}" == "${request_nonce}" ]]
+}
+
+set_terminal_title
+trap set_terminal_title EXIT
+trap 'exec "${0:A}"' HUP
+trap 'exit 0' INT TERM
+
+# Starting the dispatcher is the warm-up boundary. Failure is handled again for
+# the concrete request so the terminal remains available for recovery.
+[[ -x "${supervisor}" ]] && "${supervisor}" ensure >/dev/null 2>&1 || true
+
+while true; do
+  session_id=""
+  if ! IFS= read -r session_id < "${request_fifo}"; then
+    sleep 0.05
+    continue
+  fi
+  if [[ ! "${session_id}" =~ '^[0-9]{8}-[0-9]{6}-[A-Fa-f0-9]{8}$' ]]; then
+    print -u2 "Edit Anywhere: rejected malformed FIFO session ID"
+    continue
+  fi
+  if ! owner_matches_session "${session_id}"; then
+    print -u2 "Edit Anywhere: ignored FIFO session without a matching frontend owner: ${session_id}"
+    continue
+  fi
+  if [[ ! -x "${runner}" ]]; then
+    print -u2 "Edit Anywhere: missing ${runner}"
+    set_terminal_title
+    continue
+  fi
+  set_session_title "${session_id}"
+  record_dispatch_ack "${session_id}" || \
+    print -u2 "Edit Anywhere: could not publish dispatcher metrics for ${session_id}"
+  "${runner}" "${session_id}"
+  set_terminal_title
+done

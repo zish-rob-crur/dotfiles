@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zish.dev/edit-anywhere/result-v1.json",
+  "title": "Edit Anywhere accepted-session result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol_version",
+    "session_id",
+    "nonce",
+    "server_uuid",
+    "generation",
+    "status",
+    "reason",
+    "output_sha256",
+    "published_at_unix_ms"
+  ],
+  "properties": {
+    "protocol_version": { "const": 1 },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[0-9]{8}-[0-9]{6}-[A-Fa-f0-9]{8}$"
+    },
+    "nonce": {
+      "type": "string",
+      "minLength": 22,
+      "maxLength": 256,
+      "pattern": "^[A-Za-z0-9_-]+$"
+    },
+    "server_uuid": { "type": "string", "minLength": 1 },
+    "generation": { "type": "integer", "minimum": 0 },
+    "status": { "enum": ["committed", "cancelled", "failed"] },
+    "reason": { "type": ["string", "null"] },
+    "output_sha256": {
+      "type": ["string", "null"],
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "published_at_unix_ms": { "type": "integer", "minimum": 1 }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "committed" } } },
+      "then": {
+        "properties": {
+          "reason": { "type": "null" },
+          "output_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "cancelled" } } },
+      "then": {
+        "properties": {
+          "reason": { "type": "null" },
+          "output_sha256": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "failed" } } },
+      "then": {
+        "properties": {
+          "reason": { "type": "string", "minLength": 1 },
+          "output_sha256": { "type": "null" }
+        }
+      }
+    }
+  ]
+}

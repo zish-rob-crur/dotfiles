@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zish.dev/edit-anywhere/decision-v1.json",
+  "title": "Edit Anywhere admission decision v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol_version",
+    "session_id",
+    "nonce",
+    "outcome",
+    "reason",
+    "fallback_allowed",
+    "writer",
+    "server_uuid",
+    "generation",
+    "config_fingerprint",
+    "decided_at_unix_ms"
+  ],
+  "properties": {
+    "protocol_version": { "const": 1 },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[0-9]{8}-[0-9]{6}-[A-Fa-f0-9]{8}$"
+    },
+    "nonce": {
+      "type": "string",
+      "minLength": 22,
+      "maxLength": 256,
+      "pattern": "^[A-Za-z0-9_-]+$"
+    },
+    "outcome": { "enum": ["accepted", "rejected"] },
+    "reason": { "type": ["string", "null"] },
+    "fallback_allowed": { "type": "boolean" },
+    "writer": { "enum": ["server", "supervisor"] },
+    "server_uuid": { "type": ["string", "null"], "minLength": 1 },
+    "generation": { "type": ["integer", "null"], "minimum": 0 },
+    "config_fingerprint": { "type": ["string", "null"], "minLength": 1 },
+    "decided_at_unix_ms": { "type": "integer", "minimum": 1 }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "outcome": { "const": "accepted" },
+        "reason": { "type": "null" },
+        "fallback_allowed": { "const": false },
+        "writer": { "const": "server" },
+        "server_uuid": { "type": "string", "minLength": 1 },
+        "generation": { "type": "integer", "minimum": 0 },
+        "config_fingerprint": { "type": "string", "minLength": 1 }
+      }
+    },
+    {
+      "properties": {
+        "outcome": { "const": "rejected" },
+        "reason": { "const": "DECISION_LOST" },
+        "fallback_allowed": { "const": false },
+        "writer": { "const": "supervisor" },
+        "server_uuid": { "type": "null" },
+        "generation": { "type": "null" }
+      }
+    },
+    {
+      "properties": {
+        "outcome": { "const": "rejected" },
+        "reason": { "type": "string", "minLength": 1, "not": { "const": "DECISION_LOST" } },
+        "fallback_allowed": { "const": false },
+        "writer": { "const": "server" },
+        "server_uuid": { "type": "string", "minLength": 1 },
+        "generation": { "type": "integer", "minimum": 0 },
+        "config_fingerprint": { "type": "string", "minLength": 1 }
+      }
+    }
+  ]
+}

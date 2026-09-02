@@ -21,10 +21,27 @@
 - `~/.config/btop/themes` -> `dotfiles/btop/themes`
 - `~/.config/ghostty/config` -> `dotfiles/ghostty/config` on macOS
 - `~/.config/ghostty/shaders/unfocused_mute.glsl` -> `dotfiles/ghostty/shaders/unfocused_mute.glsl` on macOS
+- `~/.hammerspoon/init.lua` -> `dotfiles/hammerspoon/init.lua` on macOS
+- `~/.hammerspoon/edit_anywhere.lua` -> `dotfiles/hammerspoon/edit_anywhere.lua` on macOS
 - `~/.config/karabiner/karabiner.json` -> `dotfiles/karabiner/karabiner.json` on macOS only
+- `~/.local/share/edit-anywhere/nvim` -> `dotfiles/edit-anywhere/nvim`
+- `~/.local/bin/edit-anywhere-nvim` -> `dotfiles/bin/edit-anywhere-nvim`
+- `~/.local/bin/edit-anywhere-server` -> `dotfiles/bin/edit-anywhere-server`
+- `~/.local/bin/edit-anywhere-spawn` -> `dotfiles/bin/edit-anywhere-spawn`
+- `~/.local/bin/edit-anywhere-quick-terminal` -> `dotfiles/bin/edit-anywhere-quick-terminal`
+- `~/.local/bin/edit-anywhere-ocr` -> `dotfiles/bin/edit-anywhere-ocr`
+- `~/.cache/edit-anywhere/edit-anywhere-ocr-bin` is compiled from the linked OCR source on macOS
 - `~/.local/bin/nvim-agent` -> `dotfiles/bin/nvim-agent`
 - `~/.local/bin/ssh-fzf` -> `dotfiles/fzf_scripts/ssh-fzf.sh`
 - `~/.config/nvim` -> `AstroNvim repo`
+
+## Neovim external context protocol
+
+- `NVIM_EXTERNAL_CONTEXT_FILE`: context file that may appear after Neovim starts
+- `NVIM_EXTERNAL_CONTEXT_DELETE=1`: remove the file after loading it
+- `NVIM_EXTERNAL_CONTEXT_SOURCE`: context origin such as `window-ocr` or `tmux-shell`
+- `NVIM_EXTERNAL_CONTEXT_MAX_LINES`, `NVIM_EXTERNAL_CONTEXT_MAX_CHARS`, and
+  `NVIM_EXTERNAL_CONTEXT_MAX_LINE_CHARS`: optional prompt size limits
 
 ## Managed tmux helpers
 

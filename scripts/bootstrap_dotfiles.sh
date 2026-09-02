@@ -256,5 +256,13 @@ if [ -d "${ASTRO_REPO}" ]; then
     link_path "${ASTRO_REPO}" "${HOME}/.config/nvim"
 fi
 
+if [ "$(uname -s)" = "Darwin" ]; then
+    edit_anywhere_args=(--dotfiles-repo "${DOTFILES_REPO}")
+    if [ "${DRY_RUN}" -eq 1 ]; then
+        edit_anywhere_args+=(--dry-run)
+    fi
+    "${DOTFILES_REPO}/scripts/install_edit_anywhere.sh" "${edit_anywhere_args[@]}"
+fi
+
 ensure_tpm
 ensure_brew

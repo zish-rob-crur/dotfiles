@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zish.dev/edit-anywhere/request-v1.json",
+  "title": "Edit Anywhere request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol_version",
+    "session_id",
+    "nonce",
+    "created_at_unix_ms",
+    "expires_at_unix_ms",
+    "editor",
+    "context",
+    "source_window"
+  ],
+  "properties": {
+    "protocol_version": { "const": 1 },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[0-9]{8}-[0-9]{6}-[A-Fa-f0-9]{8}$"
+    },
+    "nonce": {
+      "type": "string",
+      "minLength": 22,
+      "maxLength": 256,
+      "pattern": "^[A-Za-z0-9_-]+$"
+    },
+    "created_at_unix_ms": { "type": "integer", "minimum": 1 },
+    "expires_at_unix_ms": { "type": "integer", "minimum": 1 },
+    "editor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["filetype", "cursor", "start_insert"],
+      "properties": {
+        "filetype": { "const": "markdown" },
+        "cursor": { "enum": ["start", "end"] },
+        "start_insert": { "type": "boolean" }
+      }
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "token", "relative_path"],
+      "properties": {
+        "source": { "const": "window-ocr" },
+        "token": {
+          "type": "string",
+          "minLength": 22,
+          "maxLength": 256,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "relative_path": { "const": "context.txt" }
+      }
+    },
+    "source_window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pid", "window_id", "bundle_id"],
+      "properties": {
+        "pid": { "type": "integer", "minimum": 1 },
+        "window_id": { "type": "integer", "minimum": 1 },
+        "bundle_id": { "type": "string", "minLength": 1, "maxLength": 512 }
+      }
+    }
+  }
+}
