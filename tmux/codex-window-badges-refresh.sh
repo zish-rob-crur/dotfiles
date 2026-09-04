@@ -839,6 +839,11 @@ try:
             continue
         if active.returncode != 0:
             break
+        try:
+            if os.fstat(lock_fd).st_ino != os.stat(str(lock_path)).st_ino:
+                break  # lock file replaced; a successor owns the new one
+        except OSError:
+            break
         active_child = subprocess.Popen(
             ["bash", script, "--force"],
             stdout=subprocess.DEVNULL,

@@ -378,7 +378,7 @@ def server_identity() -> Optional[tuple[str, str, str]]:
     return fields[0], fields[1], fields[2]
 
 
-def daemon_lock(identity: tuple[str, str, str]) -> Optional[int]:
+def daemon_lock(identity: tuple[str, str, str]) -> Optional[tuple[int, Path]]:
     server_pid, server_start, socket_path = identity
     namespace = server_state_dir(STATE_ROOT, socket_path)
     if namespace is None:
@@ -399,16 +399,25 @@ def daemon_lock(identity: tuple[str, str, str]) -> Optional[int]:
     except BlockingIOError:
         os.close(descriptor)
         return None
-    return descriptor
+    return descriptor, lock_path
+
+
+def lock_still_current(descriptor: int, lock_path: Path) -> bool:
+    """False once the lock file was unlinked or replaced; the flock then guards nothing."""
+    try:
+        return os.fstat(descriptor).st_ino == lock_path.stat().st_ino
+    except OSError:
+        return False
 
 
 def run_daemon() -> int:
     identity = server_identity()
     if identity is None:
         return 1
-    descriptor = daemon_lock(identity)
-    if descriptor is None:
+    lock = daemon_lock(identity)
+    if lock is None:
         return 0
+    descriptor, lock_path = lock
 
     stopped = threading.Event()
 
@@ -420,7 +429,7 @@ def run_daemon() -> int:
     max_loops = int(os.environ.get("CODEX_TMUX_IDLE_PARK_MAX_LOOPS", "0"))
     loops = 0
     try:
-        while not stopped.is_set() and server_identity() == identity:
+        while not stopped.is_set() and server_identity() == identity and lock_still_current(descriptor, lock_path):
             idle_seconds = tmux_integer_option(
                 "@codex-idle-park-seconds", DEFAULT_IDLE_SECONDS, 60
             )

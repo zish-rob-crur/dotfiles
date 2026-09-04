@@ -509,8 +509,16 @@ def run_daemon() -> int:
     (lock_dir / "pid").write_text(f"{os.getpid()}\n")
     (lock_dir / "script-sha256").write_text(f"{script_digest}\n")
 
+    def owns_lock() -> bool:
+        try:
+            return (lock_dir / "pid").read_text().strip() == str(os.getpid())
+        except OSError:
+            return False
+
     try:
         while True:
+            if not owns_lock():
+                return 0  # another instance took over; leave its lock alone
             if subprocess.run(["tmux", "has-session"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0:
                 return 0
 
@@ -521,7 +529,8 @@ def run_daemon() -> int:
 
             time.sleep(DAEMON_INTERVAL)
     finally:
-        shutil.rmtree(lock_dir, ignore_errors=True)
+        if owns_lock():
+            shutil.rmtree(lock_dir, ignore_errors=True)
 
 
 def main(argv: list[str]) -> int:
