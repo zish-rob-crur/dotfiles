@@ -11,20 +11,39 @@ terminal_title="__EDIT_ANYWHERE_QUICK_TERMINAL__"
 active_title_prefix="__EDIT_ANYWHERE_SESSION__:"
 sessions_dir="${cache_dir}/sessions"
 owner_file="${cache_dir}/frontend.lock/owner.json"
+heartbeat_file="${cache_dir}/dispatcher.heartbeat"
 
 umask 077
 mkdir -p -m 700 "${cache_dir}" "${sessions_dir}"
 chmod 700 "${cache_dir}" "${sessions_dir}"
 
-if [[ -e "${request_fifo}" && ! -p "${request_fifo}" ]]; then
-  print -u2 "Edit Anywhere: ${request_fifo} exists but is not a named pipe"
-  exit 1
-fi
+fifo_fd=""
+fifo_inode=""
 
-if [[ ! -p "${request_fifo}" ]]; then
-  mkfifo "${request_fifo}" || exit 1
-fi
-chmod 600 "${request_fifo}"
+fifo_inode_now() {
+  zmodload -F zsh/stat b:zstat 2>/dev/null || return 1
+  local -a st
+  zstat -A st +inode -- "${request_fifo}" 2>/dev/null || return 1
+  print -r -- "${st[1]}"
+}
+
+# Hold the FIFO open read-write. Writers then never block on a missing reader,
+# read() never sees EOF, and the loop can notice when the path was recreated
+# (a plain blocking `read < fifo` stays bound to the old inode forever).
+open_fifo() {
+  if [[ -n "${fifo_fd}" ]]; then
+    exec {fifo_fd}<&-
+    fifo_fd=""
+  fi
+  if [[ -e "${request_fifo}" && ! -p "${request_fifo}" ]]; then
+    print -u2 "Edit Anywhere: ${request_fifo} exists but is not a named pipe"
+    return 1
+  fi
+  [[ -p "${request_fifo}" ]] || mkfifo "${request_fifo}" || return 1
+  chmod 600 "${request_fifo}"
+  exec {fifo_fd}<>"${request_fifo}" || { fifo_fd=""; return 1; }
+  fifo_inode="$(fifo_inode_now)"
+}
 
 now_ms() {
   zmodload zsh/datetime 2>/dev/null || true
@@ -94,19 +113,29 @@ owner_matches_session() {
 
 set_terminal_title
 trap set_terminal_title EXIT
-trap 'exec "${0:A}"' HUP
+trap '[[ -n "${fifo_fd}" ]] && exec {fifo_fd}<&-; exec "${0:A}"' HUP
 trap 'exit 0' INT TERM
 
-# Starting the dispatcher is the warm-up boundary. Failure is handled again for
-# the concrete request so the terminal remains available for recovery.
-[[ -x "${supervisor}" ]] && "${supervisor}" ensure >/dev/null 2>&1 || true
+# Take the FIFO first so the frontend can hand over a request while the server
+# is still warming up; the request simply waits in the pipe until the loop runs.
+open_fifo || print -u2 "Edit Anywhere: could not open ${request_fifo}"
+
+# Warm the server in the background. The loop below must start reading right
+# away; a request that arrives while the server is still starting is handled by
+# the runner, which admits through the supervisor and waits for readiness.
+if [[ -x "${supervisor}" ]]; then
+  "${supervisor}" ensure >/dev/null 2>&1 {fifo_fd}<&- &!
+fi
 
 while true; do
-  session_id=""
-  if ! IFS= read -r session_id < "${request_fifo}"; then
-    sleep 0.05
-    continue
+  if [[ -z "${fifo_fd}" || "$(fifo_inode_now)" != "${fifo_inode}" ]]; then
+    open_fifo || { sleep 1; continue; }
   fi
+  # The frontend reads this file's mtime to tell "dispatcher busy" from
+  # "dispatcher not running"; the read timeout below keeps it fresh.
+  : >| "${heartbeat_file}"
+  session_id=""
+  IFS= read -t 1 -r -u "${fifo_fd}" session_id || continue
   if [[ ! "${session_id}" =~ '^[0-9]{8}-[0-9]{6}-[A-Fa-f0-9]{8}$' ]]; then
     print -u2 "Edit Anywhere: rejected malformed FIFO session ID"
     continue
@@ -123,6 +152,6 @@ while true; do
   set_session_title "${session_id}"
   record_dispatch_ack "${session_id}" || \
     print -u2 "Edit Anywhere: could not publish dispatcher metrics for ${session_id}"
-  "${runner}" "${session_id}"
+  "${runner}" "${session_id}" {fifo_fd}<&-
   set_terminal_title
 done

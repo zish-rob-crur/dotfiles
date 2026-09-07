@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 
@@ -177,6 +178,83 @@ class StaticContractTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 75)
             self.assertEqual(completed.stderr, "")
             self.assertEqual(len(invocation_log.read_text(encoding="utf-8").splitlines()), 1)
+
+
+class DispatcherTests(unittest.TestCase):
+    """The Quick Terminal dispatcher must keep serving after its FIFO is recreated."""
+
+    def setUp(self) -> None:
+        self.cache_root = Path(tempfile.mkdtemp(prefix="ea-dispatch.", dir="/tmp"))
+        self.runner_log = self.cache_root / "runner.log"
+        runner = self.cache_root / "fake-runner"
+        runner.write_text(f'#!/bin/sh\nprintf "%s\\n" "$1" >> {self.runner_log}\n', encoding="utf-8")
+        runner.chmod(0o700)
+        self.dispatcher = subprocess.Popen(
+            ["zsh", str(REPO_ROOT / "bin" / "edit-anywhere-quick-terminal")],
+            env={
+                **os.environ,
+                "EDIT_ANYWHERE_CACHE_ROOT": str(self.cache_root),
+                "EDIT_ANYWHERE_NVIM_BIN_ENTRY": str(runner),
+                "EDIT_ANYWHERE_SERVER_BIN": "/usr/bin/true",
+            },
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        self.fifo = self.cache_root / "quick-terminal.fifo"
+        deadline = time.monotonic() + 5
+        while not self.fifo.is_fifo() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertTrue(self.fifo.is_fifo(), "dispatcher did not create the FIFO")
+
+    def tearDown(self) -> None:
+        self.dispatcher.terminate()
+        try:
+            self.dispatcher.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            self.dispatcher.kill()
+        shutil.rmtree(self.cache_root, ignore_errors=True)
+
+    def publish_session(self, session_id: str) -> None:
+        nonce = "A" * 64
+        session_dir = self.cache_root / "sessions" / session_id
+        session_dir.mkdir(mode=0o700, parents=True)
+        (session_dir / "request.json").write_text(
+            json.dumps({"session_id": session_id, "nonce": nonce}), encoding="utf-8"
+        )
+        lock_dir = self.cache_root / "frontend.lock"
+        lock_dir.mkdir(mode=0o700, exist_ok=True)
+        (lock_dir / "owner.json").write_text(
+            json.dumps({"session_id": session_id, "nonce": nonce}), encoding="utf-8"
+        )
+
+    def dispatch(self, session_id: str) -> None:
+        # Mirrors Hammerspoon: a plain shell redirect that must not block.
+        completed = subprocess.run(
+            ["/bin/sh", "-c", 'printf "%s\\n" "$1" > "$2"', "test", session_id, str(self.fifo)],
+            timeout=2,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0)
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            if self.runner_log.exists() and session_id in self.runner_log.read_text(encoding="utf-8"):
+                return
+            time.sleep(0.05)
+        self.fail(f"dispatcher never ran the runner for {session_id}")
+
+    def test_dispatch_survives_fifo_recreation(self) -> None:
+        first = "20260101-000000-AAAAAAAA"
+        self.publish_session(first)
+        self.dispatch(first)
+        self.assertTrue((self.cache_root / "sessions" / first / "metrics" / "dispatcher.json").is_file())
+
+        # Simulate the cache directory being wiped and the FIFO recreated by the frontend.
+        self.fifo.unlink()
+        os.mkfifo(self.fifo, 0o600)
+        second = "20260101-000001-BBBBBBBB"
+        self.publish_session(second)
+        self.dispatch(second)
 
 
 class FullHostServerTests(unittest.TestCase):

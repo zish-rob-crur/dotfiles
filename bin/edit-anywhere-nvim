@@ -92,4 +92,13 @@ fi
 
 # The client exit status is intentionally not interpreted as an editing result.
 # decision.json/result.json are the only authority for the frontend.
+if [[ "${EDIT_ANYWHERE_UI:-}" == "neovide" ]]; then
+  neovide_bin="${EDIT_ANYWHERE_NEOVIDE_BIN:-$(command -v neovide 2>/dev/null || true)}"
+  if [[ -z "${neovide_bin}" || ! -x "${neovide_bin}" ]]; then
+    print -u2 "Edit Anywhere: neovide not found"
+    exit 127
+  fi
+  # Neovide exits on the server's :detach exactly like --remote-ui does.
+  exec "${neovide_bin}" --server "${socket_path}" --no-fork --frame none --size 1180x680
+fi
 exec "${nvim_bin}" --server "${socket_path}" --remote-ui

@@ -147,7 +147,7 @@ resolve_binaries_and_runtime() {
 fingerprint_tree() {
   local root="$1"
   [[ -d "${root}" ]] || return 0
-  find -L "${root}" -type f ! -path '*/.git/*' -print 2>/dev/null | LC_ALL=C sort | while IFS= read -r file; do
+  find -L "${root}" -type f ! -path '*/.git/*' \( -name '*.lua' -o -name '*.vim' -o -name 'lazy-lock.json' \) -print 2>/dev/null | LC_ALL=C sort | while IFS= read -r file; do
     print -r -- "${file#${root}/}"
     command cat -- "${file}"
     print
@@ -382,13 +382,14 @@ write_identity_snapshot() {
 }
 
 health_command() {
-  prepare_runtime_dirs || return 1
-  ensure_expected_fingerprint || return 1
+  prepare_runtime_dirs || { log "runtime directories are unavailable"; return 1; }
+  ensure_expected_fingerprint || { log "cannot compute the config fingerprint"; return 1; }
+  [[ -S "${socket_path}" ]] || { log "no server socket at ${socket_path}"; return 1; }
   local identity health
-  identity="$(rpc identity '{}')" || return 1
-  identity_matches_expected "${identity}" || return 1
-  health="$(rpc health '{}')" || return 1
-  health_is_healthy "${health}" || return 1
+  identity="$(rpc identity '{}')" || { log "server socket is not responding"; return 1; }
+  identity_matches_expected "${identity}" || { log "server identity or config fingerprint mismatch"; return 1; }
+  health="$(rpc health '{}')" || { log "health rpc failed"; return 1; }
+  health_is_healthy "${health}" || { log "server is not healthy: ${health}"; return 1; }
   write_identity_snapshot "${identity}" >/dev/null 2>&1 || true
   print -r -- "${health}"
 }
@@ -443,7 +444,7 @@ acquire_start_lock() {
     }
     return 0
   fi
-  wait_until_ready 30 >/dev/null && return 2
+  wait_until_ready 60 >/dev/null && return 2
   if start_lock_is_safely_stale; then
     rm -f -- "${start_lock}/owner.json"
     rmdir -- "${start_lock}" 2>/dev/null || return 1
@@ -460,17 +461,42 @@ acquire_start_lock() {
   return 1
 }
 
+# Wait up to $1 seconds for a healthy server. A cold start can take well over
+# ten seconds when lazy.nvim builds plugins or luarocks first, so callers that
+# just launched a server should allow a full minute.
 wait_until_ready() {
-  local attempts="${1:-30}"
-  local index health
-  for (( index = 1; index <= attempts; index++ )); do
+  local seconds="${1:-60}"
+  local health elapsed=0
+  while true; do
     health="$(health_command 2>/dev/null)" && {
       print -r -- "${health}"
       return 0
     }
-    sleep 0.05
+    (( elapsed >= seconds * 4 )) && return 1
+    sleep 0.25
+    elapsed=$(( elapsed + 1 ))
+    (( elapsed % 20 == 0 )) && log "still waiting for the server ($(( elapsed / 4 ))s)"
   done
-  return 1
+}
+
+# A dedicated server whose socket file disappeared (for example after the cache
+# directory was recreated) can never become reachable again. Stop such
+# processes so a fresh server can take the socket path.
+stop_socketless_servers() {
+  [[ -S "${socket_path}" ]] && return 0
+  local line pid
+  ps -axo pid=,uid=,command= 2>/dev/null | while IFS= read -r line; do
+    [[ "${line}" == *"--listen ${socket_path}"* && "${line}" == *edit_anywhere_server=1* ]] || continue
+    pid="${${line## }%% *}"
+    [[ "${pid}" == <1-> ]] || continue
+    [[ "$(ps -o uid= -p "${pid}" 2>/dev/null | tr -d '[:space:]')" == "$(current_uid)" ]] || continue
+    log "server process ${pid} lost its socket; stopping it"
+    kill "${pid}" 2>/dev/null || continue
+    local waited=0
+    while pid_is_alive "${pid}" && (( waited < 30 )); do sleep 0.1; (( waited++ )); done
+    pid_is_alive "${pid}" && kill -9 "${pid}" 2>/dev/null
+  done
+  return 0
 }
 
 clean_dead_runtime_files() {
@@ -492,7 +518,7 @@ start_command() {
   current_identity="$(rpc identity '{}' 2>/dev/null || true)"
   if [[ -n "${current_identity}" ]]; then
     if identity_matches_expected "${current_identity}"; then
-      wait_until_ready 1 >/dev/null && return 0
+      wait_until_ready 2 >/dev/null && return 0
       log "dedicated server is reachable but not idle/ready"
       return 72
     fi
@@ -519,11 +545,12 @@ start_command() {
     trap - EXIT INT TERM HUP
     return 0
   fi
+  stop_socketless_servers
   local stale_pid=""
   stale_pid="$(read_pid 2>/dev/null || true)"
   if [[ -n "${stale_pid}" ]] && pid_is_alive "${stale_pid}"; then
     if pid_is_ours "${stale_pid}"; then
-      if wait_until_ready 30 >/dev/null; then
+      if wait_until_ready 60 >/dev/null; then
         release_start_lock
         trap - EXIT INT TERM HUP
         return 0
@@ -584,7 +611,7 @@ start_command() {
     trap - EXIT INT TERM HUP
     return 70
   }
-  if wait_until_ready 30 >/dev/null; then
+  if wait_until_ready 60 >/dev/null; then
     release_start_lock
     trap - EXIT INT TERM HUP
     return 0

@@ -7,7 +7,10 @@ local SESSIONS_DIR = CACHE_DIR .. "/sessions"
 local FRONTEND_LOCK_DIR = CACHE_DIR .. "/frontend.lock"
 local OWNER_PATH = FRONTEND_LOCK_DIR .. "/owner.json"
 local FIFO_PATH = CACHE_DIR .. "/quick-terminal.fifo"
+local DISPATCHER_HEARTBEAT_PATH = CACHE_DIR .. "/dispatcher.heartbeat"
 local DISPATCHER_PATH = HOME .. "/.local/bin/edit-anywhere-quick-terminal"
+local RUNNER_PATH = HOME .. "/.local/bin/edit-anywhere-nvim"
+local NEOVIDE_PATH = "/opt/homebrew/bin/neovide"
 local SERVER_PATH = HOME .. "/.local/bin/edit-anywhere-server"
 local SERVER_PID_PATH = CACHE_DIR .. "/server/nvim.pid"
 local OCR_BINARY = CACHE_DIR .. "/edit-anywhere-ocr-bin"
@@ -494,7 +497,10 @@ local function write_metrics(session)
 end
 
 local function toggle_quick_terminal()
-  hs.eventtap.keyStroke({ "ctrl" }, "`", 0)
+  -- Ghostty's global keybind (ctrl+backquote) ignores hs.eventtap's synthetic
+  -- keystroke, so post it through System Events, which Ghostty does honour.
+  local ok = hs.osascript.applescript('tell application "System Events" to key code 50 using control down')
+  if not ok then hs.eventtap.keyStroke({ "ctrl" }, "`", 0) end
 end
 
 local function title_matches(window, session)
@@ -519,6 +525,12 @@ local function find_quick_terminal(session)
   return nil
 end
 
+-- Editor transport: Neovide attached straight to the server socket when it is
+-- installed; otherwise the Ghostty Quick Terminal + FIFO dispatcher chain.
+local function neovide_mode()
+  return hs.fs.attributes(NEOVIDE_PATH, "mode") == "file"
+end
+
 local function show_quick_terminal(session)
   local terminal = find_quick_terminal(session)
   if terminal then
@@ -530,6 +542,7 @@ local function show_quick_terminal(session)
       return
     end
   end
+  if neovide_mode() then return end
   toggle_quick_terminal()
 end
 
@@ -571,6 +584,10 @@ local function place_quick_terminal(session, terminal)
   frame.x, frame.y = chosen.x, chosen.y
   pcall(function() terminal:setFrame(frame, 0) end)
   session.quick_terminal_placed = true
+  -- A window launched by hs.task is not always activated by macOS.
+  local app = terminal:application()
+  if app then app:activate(true) end
+  pcall(function() terminal:focus() end)
 end
 
 local function observe_quick_terminal(session)
@@ -583,6 +600,14 @@ local function observe_quick_terminal(session)
     if terminal then
       place_quick_terminal(session, terminal)
       local focused = hs.window.focusedWindow()
+      if not session.qt_focused_ms and not (focused and focused:id() == terminal:id()) then
+        -- Keep asking until macOS actually brings the editor to the front;
+        -- a single activate right after launch is often ignored.
+        local app = terminal:application()
+        if app then app:activate(true) end
+        pcall(function() terminal:focus() end)
+        focused = hs.window.focusedWindow()
+      end
       if focused and focused:id() == terminal:id() and not session.qt_focused_ms then
         session.qt_focused_ms = elapsed_ms(session.hotkey_started_at)
         if session.ui_ready_ms then
@@ -602,6 +627,12 @@ local function observe_quick_terminal(session)
 end
 
 local function hide_quick_terminal(session)
+  if neovide_mode() then
+    -- The editor is our own child process; closing it is the whole "hide".
+    local task = session.dispatch_task
+    if task then pcall(function() task:terminate() end); session.dispatch_task = nil end
+    return
+  end
   local terminal = find_quick_terminal(session)
   if terminal then
     local ok, visible = pcall(function() return terminal:isVisible() end)
@@ -951,7 +982,69 @@ local function ensure_fifo()
   return true
 end
 
+local function launch_neovide(session)
+  if session.dispatch_pending then
+    show_quick_terminal(session)
+    return true
+  end
+  session.dispatch_pending = true
+  local task = hs.task.new(RUNNER_PATH, function(exit_code, _, stderr)
+    if state.sessions[session.id] ~= session then return end
+    session.dispatch_task = nil
+    session.dispatch_pending = false
+    -- After a decision the editor exiting is the normal :detach path; the
+    -- monitor owns delivery from there. Before that it is a failure.
+    if session.decision_seen then return end
+    hs.printf("Edit Anywhere editor exited before a decision for %s (%s): %s", session.id, tostring(exit_code), stderr or "")
+    session.metric_status = "editor_exited:" .. tostring(exit_code)
+    finish_without_writeback(session, "编辑器提前退出（" .. tostring(exit_code) .. "）")
+  end, { session.id })
+  task:setEnvironment({
+    HOME = HOME,
+    USER = os.getenv("USER") or "",
+    LANG = os.getenv("LANG") or "en_US.UTF-8",
+    TMPDIR = os.getenv("TMPDIR") or "/tmp",
+    PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+    EDIT_ANYWHERE_UI = "neovide",
+  })
+  session.dispatch_task = task
+  if not task:start() then
+    session.dispatch_task = nil
+    session.dispatch_pending = false
+    finish_without_writeback(session, "无法启动 Neovide 编辑器")
+    return
+  end
+  session.dispatch_ms = elapsed_ms(session.hotkey_started_at)
+  hs.settings.set("editAnywhereLastLaunchRequestMs", session.dispatch_ms)
+  -- Stand in for the Quick Terminal dispatcher's ack so OCR scheduling and
+  -- the metrics stay identical across both transports.
+  atomic_write_json(session.paths.dispatcher_metrics, {
+    protocol_version = PROTOCOL_VERSION,
+    session_id = session.id,
+    dispatch_ack_at_unix_ms = now_ms(),
+    dispatcher_pid = task:pid() or 1,
+  })
+  write_metrics(session)
+  observe_quick_terminal(session)
+  session.dispatch_timeout = hs.timer.doAfter(4, function()
+    session.dispatch_timeout = nil
+    if not state.sessions[session.id] or session.decision_seen then return end
+    -- The editor is still starting; the server may be cold-starting behind
+    -- it (plugin builds can take tens of seconds). Allow the supervisor's
+    -- full minute before giving up.
+    session.dispatch_timeout = hs.timer.doAfter(56, function()
+      session.dispatch_timeout = nil
+      if not state.sessions[session.id] or session.decision_seen then return end
+      session.dispatch_pending = false
+      session.metric_status = "server_start_timeout"
+      finish_without_writeback(session, "Neovim Server 启动超时（60 秒）")
+    end)
+  end)
+  return true
+end
+
 local function dispatch(session)
+  if neovide_mode() then return launch_neovide(session) end
   if session.dispatch_pending then
     show_quick_terminal(session)
     return true
@@ -967,6 +1060,7 @@ local function dispatch(session)
       finish_without_writeback(session, "无法连接 Ghostty Quick Terminal")
       return
     end
+    stop_session_timer(session, "dispatch_write_timeout")
     session.dispatch_ms = elapsed_ms(session.hotkey_started_at)
     hs.settings.set("editAnywhereLastLaunchRequestMs", session.dispatch_ms)
     write_metrics(session)
@@ -985,7 +1079,31 @@ local function dispatch(session)
     if not state.sessions[session.id] then return end
     session.dispatch_pending = false
     if session.decision_seen then return end
-    finish_without_writeback(session, "Quick Terminal 或 Neovim Server 启动超时")
+    local acked = hs.fs.attributes(session.paths.metrics_dir .. "/dispatcher.json") ~= nil
+    if acked then
+      -- The dispatcher has the request; the server may be cold-starting
+      -- (plugin builds can take tens of seconds). Allow a full minute, the
+      -- same budget the supervisor itself uses.
+      session.dispatch_pending = true
+      session.dispatch_timeout = hs.timer.doAfter(56, function()
+        session.dispatch_timeout = nil
+        if not state.sessions[session.id] then return end
+        session.dispatch_pending = false
+        if session.decision_seen then return end
+        session.metric_status = "server_start_timeout"
+        finish_without_writeback(session, "Neovim Server 启动超时（60 秒）")
+      end)
+      return
+    end
+    -- No ack: tell a busy dispatcher (heartbeat still fresh) from a dead one.
+    local beat = hs.fs.attributes(DISPATCHER_HEARTBEAT_PATH, "modification")
+    if beat and os.time() - beat <= 3 then
+      session.metric_status = "dispatch_unacked"
+      finish_without_writeback(session, "Quick Terminal 正忙，没有接手这次请求")
+    else
+      session.metric_status = "quick_terminal_unreachable"
+      finish_without_writeback(session, "Quick Terminal 没有在运行；请关闭并重新打开 Quick Terminal")
+    end
   end)
   return true
 end

@@ -1,7 +1,8 @@
 # Edit Anywhere
 
-在 macOS 的任意可复制输入框中按 `Cmd+Shift+E`，用 Ghostty Quick Terminal
-里的主机 Neovim 配置编辑文本。`ZZ` 提交并写回原窗口，`ZQ` 取消；当前窗口的
+在 macOS 的任意可复制输入框中按 `Cmd+Shift+E`，用主机 Neovim 配置编辑文本。
+装有 Neovide 时，Hammerspoon 直接启动一个 Neovide 窗口 attach 到专用 Server；
+否则退回 Ghostty Quick Terminal 加 FIFO dispatcher 的旧链路。`ZZ` 提交并写回原窗口，`ZQ` 取消；当前窗口的
 OCR context 会在编辑界面可输入以后异步加入补全上下文，不阻塞首屏。
 
 核心后端是一个专用、常驻、无界面的 Neovim Server。每次快捷键只创建隔离的
