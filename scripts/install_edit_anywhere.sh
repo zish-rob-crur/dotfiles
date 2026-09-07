@@ -177,6 +177,7 @@ done
 link_path "${DOTFILES_REPO}/edit-anywhere/nvim" "${HOME}/.local/share/edit-anywhere/nvim"
 link_path "${DOTFILES_REPO}/hammerspoon/init.lua" "${HOME}/.hammerspoon/init.lua"
 link_path "${DOTFILES_REPO}/hammerspoon/edit_anywhere.lua" "${HOME}/.hammerspoon/edit_anywhere.lua"
+link_path "${DOTFILES_REPO}/hammerspoon/task_board.lua" "${HOME}/.hammerspoon/task_board.lua"
 
 found_bin=0
 for source in "${DOTFILES_REPO}"/bin/edit-anywhere-*; do
