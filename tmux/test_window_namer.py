@@ -25,8 +25,8 @@ class SanitizeTests(unittest.TestCase):
         self.assertEqual(wn.sanitize("Bug Handoff!"), "bug-handoff")
 
     def test_truncates_at_word_boundary(self):
-        self.assertEqual(wn.sanitize("goal-review-fix"), "goal-review")
-        self.assertEqual(wn.sanitize("abcdefghijklmnop"), "abcdefghijkl")
+        self.assertEqual(wn.sanitize("goal-review-fix-for-agents"), "goal-review-fix")
+        self.assertEqual(wn.sanitize("abcdefghijklmnopqrstu"), "abcdefghijklmnop")
 
 
 class PrefixTests(unittest.TestCase):

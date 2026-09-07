@@ -13,6 +13,9 @@ from manual renames and skip windows whose context has not changed.
     window-namer.py --propose  ask codex and print the names without applying
     window-namer.py --apply    apply the last proposal
     window-namer.py --daemon   poll and name automatically until tmux exits
+
+Every rename, release and codex call is appended to
+$XDG_CACHE_HOME/tmux-window-namer/namer.log.
 """
 
 from __future__ import annotations
@@ -20,6 +23,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import logging
 import os
 import re
 import shutil
@@ -34,11 +38,14 @@ from pathlib import Path
 
 STATE_DIR = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))) / "tmux-window-namer"
 PROPOSAL_PATH = STATE_DIR / "proposal.json"
+LOG_PATH = STATE_DIR / "namer.log"
 DAEMON_INTERVAL = float(os.environ.get("TMUX_WINDOW_NAMER_INTERVAL", "30"))
 CODEX_MODEL = os.environ.get("TMUX_WINDOW_NAMER_MODEL", "gpt-5.4-mini")
 CODEX_TIMEOUT = 120
-MAX_NAME_LENGTH = 12
+MAX_NAME_LENGTH = 16  # only the current window shows its name on the rail, so this can be generous
 FIELD_SEP = "\x1f"
+
+log = logging.getLogger("window-namer")
 
 OUTPUT_SCHEMA = {
     "type": "object",
@@ -270,11 +277,14 @@ def ask_codex(to_name: list[Window], taken: list[str]) -> dict[str, str]:
         schema = Path(tmp) / "schema.json"
         schema.write_text(json.dumps(OUTPUT_SCHEMA))
         output = Path(tmp) / "out.json"
+        stderr = Path(tmp) / "stderr.txt"
         prompt = PROMPT.format(
             max_len=MAX_NAME_LENGTH,
             taken=", ".join(sorted(taken)) or "(none)",
             windows=json.dumps([describe(w) for w in to_name], ensure_ascii=False, indent=1),
         )
+        log.info("codex: naming %s taken=%s", [w.id for w in to_name], sorted(taken))
+        started = time.monotonic()
         try:
             subprocess.run(
                 [
@@ -286,23 +296,23 @@ def ask_codex(to_name: list[Window], taken: list[str]) -> dict[str, str]:
                     "--output-schema", str(schema), "-o", str(output),
                     prompt,
                 ],
+                stdin=subprocess.DEVNULL,  # codex exec reads stdin to EOF when it is not a tty
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stderr=stderr.open("w"),
                 timeout=CODEX_TIMEOUT,
             )
         except FileNotFoundError:
-            print("window-namer: codex CLI not found on PATH", file=sys.stderr)
-            return {}
+            return fail("codex CLI not found on PATH")
         except subprocess.TimeoutExpired:
-            print(f"window-namer: codex exec timed out after {CODEX_TIMEOUT}s", file=sys.stderr)
-            return {}
+            return fail(f"codex exec timed out after {CODEX_TIMEOUT}s", stderr)
         if not output.exists():
-            print("window-namer: codex returned nothing (not logged in or offline?)", file=sys.stderr)
-            return {}
+            return fail("codex returned nothing (not logged in or offline?)", stderr)
+        raw = output.read_text()
+        log.info("codex replied in %.1fs: %s", time.monotonic() - started, raw.strip())
         try:
-            entries = json.loads(output.read_text()).get("names", [])
+            entries = json.loads(raw).get("names", [])
         except (json.JSONDecodeError, AttributeError):
-            return {}
+            return fail("codex reply is not the expected JSON")
     names = {}
     for entry in entries:
         name = sanitize(str(entry.get("name", "")))
@@ -311,7 +321,17 @@ def ask_codex(to_name: list[Window], taken: list[str]) -> dict[str, str]:
     return names
 
 
+def fail(message: str, stderr: Path | None = None) -> dict[str, str]:
+    tail = ""
+    if stderr is not None and stderr.exists():
+        tail = "".join(stderr.read_text(errors="replace").splitlines(keepends=True)[-15:]).strip()
+    log.error("%s%s", message, f"\n--- codex stderr ---\n{tail}" if tail else "")
+    print(f"window-namer: {message}", file=sys.stderr)
+    return {}
+
+
 def release(window: Window) -> None:
+    log.info("release %s %r (no branch or title left)", window.id, window.name)
     tmux(["set", "-w", "-t", window.id, "-u", "@llm-name"])
     tmux(["set", "-w", "-t", window.id, "-u", "@llm-key"])
     tmux(["set", "-w", "-t", window.id, "automatic-rename", "on"])
@@ -320,6 +340,7 @@ def release(window: Window) -> None:
 def apply(proposal: dict[str, dict[str, str]]) -> None:
     """proposal maps window id -> {"name": ..., "key": ...}."""
     for window_id, entry in proposal.items():
+        log.info("rename %s %r -> %r context=%s", window_id, entry["old"], entry["name"], json.dumps(entry.get("context"), ensure_ascii=False))
         tmux(["rename-window", "-t", window_id, entry["name"]])
         tmux(["set", "-w", "-t", window_id, "automatic-rename", "off"])
         tmux(["set", "-w", "-t", window_id, "@llm-name", entry["name"]])
@@ -338,7 +359,7 @@ def propose() -> dict[str, dict[str, str]]:
     taken = [w.topic or w.name for w in windows if w.id not in pending]
     topics = ask_codex(to_name, taken)
     return {
-        w.id: {"old": w.name, "name": compose(w.icon, project_prefix(w.repo), topics[w.id]), "key": w.key}
+        w.id: {"old": w.name, "name": compose(w.icon, project_prefix(w.repo), topics[w.id]), "key": w.key, "context": describe(w)}
         for w in to_name
         if w.id in topics
     }
@@ -404,6 +425,7 @@ def run_daemon() -> int:
 
     (lock_dir / "pid").write_text(f"{os.getpid()}\n")
     (lock_dir / "script-sha256").write_text(f"{script_digest}\n")
+    log.info("daemon start pid=%d interval=%ss model=%s", os.getpid(), DAEMON_INTERVAL, CODEX_MODEL)
 
     def owns_lock() -> bool:
         try:
@@ -413,13 +435,15 @@ def run_daemon() -> int:
     try:
         while True:
             if not owns_lock():
-                return 0  # another instance took over; leave its lock alone
+                log.info("daemon exit: lock taken over")
+                return 0
             if subprocess.run(["tmux", "has-session"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0:
+                log.info("daemon exit: tmux server gone")
                 return 0
             try:
                 run("auto")
             except Exception:
-                pass
+                log.exception("daemon round failed")
             time.sleep(DAEMON_INTERVAL)
     finally:
         if owns_lock():
@@ -434,6 +458,11 @@ def main(argv: list[str]) -> int:
     group.add_argument("--propose", action="store_const", const="propose", dest="mode", help="ask codex and save names for review")
     group.add_argument("--apply", action="store_const", const="apply", dest="mode", help="apply the saved proposal")
     args = parser.parse_args(argv[1:])
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    handler = logging.FileHandler(LOG_PATH, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    log.addHandler(handler)
+    log.setLevel(logging.INFO)
     if args.daemon:
         return run_daemon()
     return run(args.mode or "auto")
