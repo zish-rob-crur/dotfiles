@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-import importlib.util
 import sys
 import unittest
 from pathlib import Path
 
-spec = importlib.util.spec_from_file_location("window_namer", Path(__file__).with_name("window-namer.py"))
-assert spec and spec.loader
-wn = importlib.util.module_from_spec(spec)
-sys.modules["window_namer"] = wn
-spec.loader.exec_module(wn)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import window_namer as wn  # noqa: E402
 
 
 def window(**overrides):

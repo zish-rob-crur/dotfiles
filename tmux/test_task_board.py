@@ -35,6 +35,30 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(tb.tool_of("zsh", "host"), "")
 
 
+class ThrottleTests(unittest.TestCase):
+    def window(self, badge):
+        w = tb.Window(id="@1", index=1, session="0", name="w", icon="", badge=badge, activity=0)
+        w.panes.append(tb.Pane("%1", True, "codex", "/x", "t", "codex"))
+        return w
+
+    def test_state_change_uses_fast_lane_even_when_unattended(self):
+        w = self.window("◆")  # waiting now, was running
+        cached = {"hash": "old", "at": 0, "state": "running", "tasks": []}
+        self.assertTrue(tb.wants_summary(w, cached, "new", 1000, allow_llm=False, allow_fast=True, attended=False))
+        self.assertFalse(tb.wants_summary(w, cached, "new", 1000, allow_llm=True, allow_fast=False, attended=True))
+
+    def test_unattended_ignores_plain_content_changes(self):
+        w = self.window("")
+        cached = {"hash": "old", "at": 0, "state": "idle", "tasks": []}
+        self.assertFalse(tb.wants_summary(w, cached, "new", 1000, allow_llm=True, allow_fast=True, attended=False))
+        self.assertTrue(tb.wants_summary(w, cached, "new", 1000, allow_llm=True, allow_fast=True, attended=True))
+
+    def test_unchanged_content_never_calls(self):
+        w = self.window("")
+        cached = {"hash": "same", "at": 0, "state": "idle", "tasks": []}
+        self.assertFalse(tb.wants_summary(w, cached, "same", 1000, allow_llm=True, allow_fast=True, attended=True))
+
+
 class GroupTests(unittest.TestCase):
     def test_groups(self):
         self.assertEqual(tb.group_of("waiting", []), "attention")
@@ -43,6 +67,19 @@ class GroupTests(unittest.TestCase):
         self.assertEqual(tb.group_of("running", [{"next": "等你确认"}]), "attention")
         self.assertEqual(tb.group_of("running", []), "working")
         self.assertEqual(tb.group_of("idle", []), "parked")
+
+
+class CoverageTests(unittest.TestCase):
+    def test_skipped_assistant_panes_get_a_title_task_in_pane_order(self):
+        w = window()
+        w.panes.append(tb.Pane("%1", True, "codex", "/x", "first", "codex"))
+        w.panes.append(tb.Pane("%2", False, "zsh", "/x", "", ""))
+        w.panes.append(tb.Pane("%3", False, "codex", "/x", "third", "codex"))
+        tasks = tb.cover_panes(w, [
+            {"summary": "s3", "next": "n", "change": "", "panes": ["%3", "%99"]},   # %99 belongs to another window
+            {"summary": "foreign", "next": "n", "change": "", "panes": ["%98"]},   # entirely another window's
+        ])
+        self.assertEqual([(t["summary"], t["panes"]) for t in tasks], [("first", ["%1"]), ("s3", ["%3"])])
 
 
 class BoardTests(unittest.TestCase):
@@ -63,7 +100,7 @@ class BoardTests(unittest.TestCase):
         board, cache, called = tb.build_board([shell, running, waiting], {}, now=1000, allow_llm=False)
         self.assertFalse(called)
         self.assertEqual([r["id"] for r in board["windows"]], ["@1", "@2", "@3"])
-        self.assertEqual([r["group"] for r in board["windows"]], ["attention", "working", "parked"])
+        self.assertEqual([r["group"] for r in board["windows"]], ["attention", "working", "parked"])  # tmux order, group is a label
         self.assertEqual(cache, {})
 
     def test_llm_only_for_settled_changed_windows(self):
@@ -71,20 +108,30 @@ class BoardTests(unittest.TestCase):
         settled.panes.append(tb.Pane("%1", True, "codex", "/x", "t", "codex"))
         busy = window(id="@2", badge="●", activity=0)
         busy.panes.append(tb.Pane("%2", True, "codex", "/x", "t", "codex"))
-        with mock.patch.object(tb, "ask_codex", return_value={"@1": {"tasks": [{"summary": "s", "next": "等你确认", "panes": ["%1"]}]}}) as ask:
-            busy_cache = {"@2": {"hash": "old", "at": 990, "tasks": [{"summary": "b", "next": "n", "panes": []}]}}  # summarised 10 s ago
+        with mock.patch.object(tb, "ask_codex", return_value={"@1": {"tasks": [{"summary": "s", "next": "等你确认", "change": "从运行中变为等待确认", "panes": ["%1"]}], "name": ""}}) as ask:
+            busy_cache = {"@2": {"hash": "old", "at": 990, "state": "running", "tasks": [{"summary": "b", "next": "n", "panes": []}]}}  # summarised 10 s ago
             board, cache, called = tb.build_board([settled, busy], busy_cache, now=1000, allow_llm=True)
             self.assertTrue(called)
             self.assertEqual([p["id"] for p in ask.call_args[0][0]], ["@1"])  # busy window waits for its 2-minute refresh
         self.assertEqual(cache["@1"]["tasks"][0]["summary"], "s")
+        self.assertEqual(cache["@1"]["tasks"][0]["changed_at"], 1000)
         self.assertEqual(cache["@2"]["tasks"][0]["summary"], "b")
         self.assertEqual(board["windows"][0]["id"], "@1")
         self.assertEqual(board["windows"][0]["group"], "attention")  # idle + "等你" -> needs you
+        # Changed scrollback, model says nothing changed: the previous summaries were sent and the old note is kept.
+        settled.panes[0].title = "t2"
+        with mock.patch.object(tb, "capture", side_effect=lambda pane_id: "new tail"):
+            with mock.patch.object(tb, "ask_codex", return_value={"@1": {"tasks": [{"summary": "s", "next": "等你确认", "change": "", "panes": ["%1"]}], "name": ""}}) as ask:
+                _, cache, _ = tb.build_board([settled], cache, now=3000, allow_llm=True)
+                self.assertEqual(ask.call_args[0][0][0]["previous"][0]["summary"], "s")
+        self.assertEqual(cache["@1"]["tasks"][0]["change"], "从运行中变为等待确认")
+        self.assertEqual(cache["@1"]["tasks"][0]["changed_at"], 1000)
         # Same scrollback again: served from cache, no call.
-        with mock.patch.object(tb, "ask_codex") as ask:
-            _, _, called = tb.build_board([settled], cache, now=2000, allow_llm=True)
-            self.assertFalse(called)
-            ask.assert_not_called()
+        with mock.patch.object(tb, "capture", side_effect=lambda pane_id: "new tail"):
+            with mock.patch.object(tb, "ask_codex") as ask:
+                _, _, called = tb.build_board([settled], cache, now=4000, allow_llm=True)
+                self.assertFalse(called)
+                ask.assert_not_called()
 
 
 if __name__ == "__main__":

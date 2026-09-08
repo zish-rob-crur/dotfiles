@@ -17,9 +17,12 @@ from collections.abc import Callable
 from pathlib import Path
 
 
-def run_daemon(lock_dir: Path, script: Path, interval: float, round_fn: Callable[[], None], log=None) -> int:
+def run_daemon(lock_dir: Path, script: Path, interval: float, round_fn: Callable[[], None], log=None,
+               sources: list[Path] | None = None) -> int:
+    """`sources` lists every file whose change should replace a running daemon
+    (the script plus the local modules it imports); defaults to the script alone."""
     lock_dir.parent.mkdir(parents=True, exist_ok=True)
-    digest = hashlib.sha256(script.read_bytes()).hexdigest()
+    digest = hashlib.sha256(b"".join(p.read_bytes() for p in (sources or [script]))).hexdigest()
 
     try:
         lock_dir.mkdir()

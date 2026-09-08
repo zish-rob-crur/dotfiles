@@ -1,17 +1,26 @@
 #!/usr/bin/env python3
 """Semantic task board for tmux windows.
 
-Every round collects one row per tmux window: the window-namer name, tool
-icon, the badge state computed by codex-window-badges-refresh.sh (waiting /
-running / done / error), last activity, and the assistant panes inside. For
-windows that hold an assistant pane and have settled (not running, no activity
-for a few seconds) the last lines of each assistant pane are summarised by one
-batched `codex exec` call into two short Chinese lines: what the window is
-doing and what happens next. Summaries are cached by scrollback hash so an
-unchanged window never costs another call.
+Every round collects one row per tmux window: the window name, tool icon, the
+badge state computed by codex-window-badges-refresh.sh (waiting / running /
+done / error), repo and branch, last activity, and this week's todos. One
+batched `codex exec` call turns the last lines of every pane into one task
+per assistant pane (two short Chinese lines: what is being done, what happens
+next, plus what changed since last time) and, in the same call, names windows
+that window_namer.py has not named yet.
+
+Calls are throttled so the board stays cheap:
+- a window is re-summarised only when its scrollback changed;
+- a badge state change (running -> waiting/done/error) gets a fast lane, at
+  most once a minute;
+- otherwise summaries happen at most every LLM_MIN_GAP seconds, for windows
+  that have been quiet for SETTLE_SECONDS, busy windows every RUNNING_REFRESH;
+- with nobody at the keyboard for UNATTENDED_AFTER seconds only state changes
+  are summarised, at most every UNATTENDED_GAP, so agents working overnight
+  still show up but do not burn quota every few minutes.
 
 The result is written to $XDG_CACHE_HOME/tmux-task-board/board.json for
-hammerspoon/task_board.lua to draw on a dedicated screen.
+hammerspoon/task_board.lua.
 
     task-board.py            one round, write board.json
     task-board.py --print    one round, print the board as text
@@ -26,49 +35,36 @@ import json
 import logging
 import os
 import re
-import subprocess
 import sys
-import tempfile
 import time
 from dataclasses import dataclass, field
-from functools import lru_cache
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import codex_batch  # noqa: E402
+import todo_notes  # noqa: E402
+import window_namer  # noqa: E402
 from daemon_lock import run_daemon  # noqa: E402
+from tmux_panes import clean_command, clean_icon, clean_title, git_info, tmux, tool_of, user_idle_seconds  # noqa: E402
 
 STATE_DIR = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))) / "tmux-task-board"
 BOARD_PATH = STATE_DIR / "board.json"
 CACHE_PATH = STATE_DIR / "summaries.json"
 LOG_PATH = STATE_DIR / "board.log"
 INTERVAL = float(os.environ.get("TMUX_TASK_BOARD_INTERVAL", "10"))
-LLM_MIN_GAP = float(os.environ.get("TMUX_TASK_BOARD_LLM_GAP", "90"))  # at most one codex call per this many seconds
-SETTLE_SECONDS = 15
-RUNNING_REFRESH_SECONDS = 300  # a busy window is re-summarised at most this often
+LLM_MIN_GAP = 300  # normal cadence between codex calls
+FAST_GAP = 60  # cadence when a badge state changed
+SETTLE_SECONDS = 60  # a window must be quiet this long before it is re-summarised
+RUNNING_REFRESH = 600  # a busy window is re-summarised at most this often
+UNATTENDED_AFTER = 1800  # no keyboard/mouse for this long -> unattended mode
+UNATTENDED_GAP = 900
 SCROLLBACK_LINES = 40
-CODEX_MODEL = os.environ.get("TMUX_TASK_BOARD_MODEL", "gpt-5.4-mini")
-CODEX_TIMEOUT = 120
 FIELD_SEP = "\x1f"
 
 # Glyphs rendered into @codex-badge by codex-window-badges-refresh.sh.
 STATE_GLYPHS = (("×", "error"), ("◆", "waiting"), ("●", "running"), ("󰄬", "done"))
-STATE_ORDER = {"error": 0, "waiting": 1, "done": 2, "running": 3, "idle": 4}
-# Board groups, derived from the badge state plus what the model says comes next.
-GROUP_ORDER = {"attention": 0, "review": 1, "working": 2, "parked": 3}
 REVIEW_HINTS = ("已完成", "待查看", "待你", "已生成", "待确认")
 NEEDS_DECISION = re.compile(r"等你|待你(决定|确认|回复|回答|批准|选择|拍板)")
-
-
-def group_of(state: str, tasks: list[dict]) -> str:
-    """attention: blocked on the user; review: finished, look at the result; working; parked."""
-    nexts = [t.get("next", "") for t in tasks]
-    if state in ("error", "waiting") or any(NEEDS_DECISION.search(n) for n in nexts):
-        return "attention"
-    if state == "running":
-        return "working"
-    if state == "done" or any(any(h in n for h in REVIEW_HINTS) for n in nexts):
-        return "review"
-    return "parked"
 
 log = logging.getLogger("task-board")
 
@@ -81,6 +77,7 @@ OUTPUT_SCHEMA = {
                 "type": "object",
                 "properties": {
                     "id": {"type": "string"},
+                    "name": {"type": "string"},
                     "tasks": {
                         "type": "array",
                         "items": {
@@ -88,14 +85,15 @@ OUTPUT_SCHEMA = {
                             "properties": {
                                 "summary": {"type": "string"},
                                 "next": {"type": "string"},
+                                "change": {"type": "string"},
                                 "panes": {"type": "array", "items": {"type": "string"}},
                             },
-                            "required": ["summary", "next", "panes"],
+                            "required": ["summary", "next", "change", "panes"],
                             "additionalProperties": False,
                         },
                     },
                 },
-                "required": ["id", "tasks"],
+                "required": ["id", "name", "tasks"],
                 "additionalProperties": False,
             },
         }
@@ -106,16 +104,31 @@ OUTPUT_SCHEMA = {
 
 PROMPT = """下面是几个 tmux 窗口，每个窗口里有一个或多个 pane：可能是 AI 编程助手（codex 或
 claude）的会话，也可能是普通 shell、测试或编辑器。附带会话标题和终端最后几十行输出。
-一个窗口里可能同时推进多个互不相关的任务，也可能几个 pane 在配合做同一件事（比如助手
-会话加一个跑测试的 shell）。请先按任务拆分：同一任务的 pane 合并成一条，不相关的任务各写
-一条，并在 panes 里列出每条任务对应的 pane id。每条任务用中文写：
+
+每个 codex 或 claude 的 pane 就是一条任务，一一对应，不要把多个助手 pane 合并成一条；
+普通 shell、测试或编辑器的 pane 是它旁边助手任务的辅助信息，不单独成条，但可以用来判断
+进展。panes 里写这条任务对应的 pane id。每条任务用中文写：
 
 - summary：在推进什么、目前进展到哪一步。不超过 40 个字。
 - next：接下来会发生什么，或者正在等什么。如果在等用户批准、回答问题或确认，必须明确
   写出“等你……”；如果已经完成，写“已完成，待查看结果”之类。不超过 30 个字。
 
-空闲的 shell 提示符、没有实质内容的 pane 不要单独成条。只根据给出的内容判断，不要臆测。
+每个 codex 或 claude 的 pane 都必须有自己的一条任务，不能遗漏。只根据给出的内容判断，不要臆测。
+
+每个窗口可能带 previous：上一次生成的任务列表。它只用来保持措辞稳定，不是任务清单；
+当前 pane 里有而 previous 里没有的任务照样要列出来。对比规则：
+- 任务没有实质变化时，summary 和 next 沿用 previous 的原话，change 必须是空字符串；
+- 有实质变化时（比如从运行中变为等待批准、从等待变为已完成、出现了新任务、报错），更新 summary
+  和 next，并在 change 里用一句话说明变化，例如“从等待批准变为已完成”。不超过 20 个字；
+- previous 里的任务已经不存在了就不要再列。
+
+标了 name_needed 的窗口还要起一个窗口名 name：不超过 {max_name} 个字符，只用小写 ascii
+字母、数字和连字符，描述这个窗口的任务或主题而不是仓库，且不能和 taken_names 里的重复。
+其他窗口 name 留空字符串。
+
 输出严格按 schema。
+
+taken_names: {taken}
 
 窗口：
 {windows}
@@ -161,16 +174,6 @@ class Window:
     def settled(self, now: float) -> bool:
         return self.state != "running" and now - self.activity >= SETTLE_SECONDS
 
-    def wants_summary(self, now: float, cached: dict | None) -> bool:
-        """Settled windows refresh right away; busy ones only every RUNNING_REFRESH_SECONDS."""
-        if self.settled(now):
-            return True
-        return not cached or now - cached.get("at", 0) >= RUNNING_REFRESH_SECONDS
-
-
-def tmux(args: list[str]) -> str:
-    return subprocess.run(["tmux", *args], capture_output=True, text=True).stdout
-
 
 def classify(badge: str) -> str:
     for glyph, state in STATE_GLYPHS:
@@ -179,34 +182,16 @@ def classify(badge: str) -> str:
     return "idle"
 
 
-def tool_of(command: str, title: str) -> str:
-    if command.startswith("codex"):
-        return "codex"
-    if command.startswith("claude") or (re.fullmatch(r"\d+\.\d+\.\d+", command) and title.startswith(("✳", "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"))):
-        return "claude"
-    return ""
-
-
-def clean_title(title: str) -> str:
-    return re.sub(r"^[\s✳⠁-⣿]+", "", title).strip()
-
-
-@lru_cache(maxsize=None)
-def git_info(path: str) -> tuple[str, str]:
-    """(repo name, branch) for a path; empty strings outside a repository."""
-    try:
-        result = subprocess.run(
-            ["git", "-C", path, "rev-parse", "--abbrev-ref", "HEAD", "--show-toplevel"],
-            capture_output=True, text=True, timeout=2,
-        )
-    except (subprocess.TimeoutExpired, OSError):
-        return "", ""
-    lines = result.stdout.splitlines()
-    if len(lines) != 2:
-        return "", ""
-    branch = "" if lines[0] == "HEAD" else lines[0]
-    repo = os.path.basename(lines[1]).split(".", 1)[0]  # worktree dirs look like repo.branch
-    return repo, branch
+def group_of(state: str, tasks: list[dict]) -> str:
+    """attention: blocked on the user; review: finished, look at the result; working; parked."""
+    nexts = [t.get("next", "") for t in tasks]
+    if state in ("error", "waiting") or any(NEEDS_DECISION.search(n) for n in nexts):
+        return "attention"
+    if state == "running":
+        return "working"
+    if state == "done" or any(any(h in n for h in REVIEW_HINTS) for n in nexts):
+        return "review"
+    return "parked"
 
 
 def list_windows() -> list[Window]:
@@ -224,14 +209,12 @@ def list_windows() -> list[Window]:
             continue
         window = windows.setdefault(parts[1], Window(
             id=parts[1], index=int(parts[2] or 0), session=parts[0], name=parts[3].strip(),
-            icon=re.split(r"[×│/\d]", parts[5], maxsplit=1)[0].strip(), badge=parts[4],
-            activity=int(parts[6] or 0),
+            icon=clean_icon(parts[5]), badge=parts[4], activity=int(parts[6] or 0),
         ))
-        title = clean_title(parts[11])
         repo, branch = git_info(parts[10])
         window.panes.append(Pane(
-            id=parts[7], active=parts[8] == "1", command=parts[9], path=parts[10], title=title,
-            tool=tool_of(parts[9], parts[11]), repo=repo, branch=branch,
+            id=parts[7], active=parts[8] == "1", command=clean_command(parts[9]), path=parts[10],
+            title=clean_title(parts[11], parts[10]), tool=tool_of(parts[9], parts[11]), repo=repo, branch=branch,
         ))
     return list(windows.values())
 
@@ -242,13 +225,21 @@ def capture(pane_id: str) -> str:
 
 
 def context_of(window: Window) -> tuple[str, dict]:
-    """Return (hash, payload) describing the window's assistant panes for the model."""
+    """Return (hash, payload) describing the window's panes for the model. The hash covers only live content."""
     panes = []
     for pane in window.panes:
         panes.append({"id": pane.id, "tool": pane.tool or pane.command, "title": pane.title, "tail": capture(pane.id)})
     payload = {"id": window.id, "window": window.name, "panes": panes}
     digest = hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
     return digest, payload
+
+
+def with_previous(payload: dict, cached: dict | None) -> dict:
+    """Attach the last summaries so the model can keep wording stable and name what changed."""
+    if not cached or not cached.get("tasks"):
+        return payload
+    previous = [{"summary": t.get("summary", ""), "next": t.get("next", ""), "panes": t.get("panes", [])} for t in cached["tasks"]]
+    return {**payload, "previous": previous, "previous_at": time.strftime("%H:%M", time.localtime(cached.get("at", 0)))}
 
 
 def load_cache() -> dict:
@@ -265,90 +256,133 @@ def write_json(path: Path, value) -> None:
     tmp.replace(path)
 
 
-def ask_codex(payloads: list[dict]) -> dict[str, dict]:
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(dir=STATE_DIR) as tmp:
-        schema = Path(tmp) / "schema.json"
-        schema.write_text(json.dumps(OUTPUT_SCHEMA))
-        output = Path(tmp) / "out.json"
-        stderr = Path(tmp) / "stderr.txt"
-        prompt = PROMPT.format(windows=json.dumps(payloads, ensure_ascii=False, indent=1))
-        log.info("codex: summarising %s", [p["id"] for p in payloads])
-        started = time.monotonic()
-        try:
-            subprocess.run(
-                [
-                    "codex", "exec",
-                    "--ephemeral", "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules",
-                    "-s", "read-only", "--color", "never",
-                    "-C", tmp,
-                    "-m", CODEX_MODEL, "-c", "model_reasoning_effort=low",
-                    "--output-schema", str(schema), "-o", str(output),
-                    prompt,
-                ],
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=stderr.open("w"),
-                timeout=CODEX_TIMEOUT,
-            )
-        except FileNotFoundError:
-            log.error("codex CLI not found on PATH")
-            return {}
-        except subprocess.TimeoutExpired:
-            log.error("codex exec timed out after %ss\n%s", CODEX_TIMEOUT, stderr.read_text(errors="replace")[-800:])
-            return {}
-        if not output.exists():
-            log.error("codex returned nothing\n%s", stderr.read_text(errors="replace")[-800:])
-            return {}
-        raw = output.read_text()
-        log.info("codex replied in %.1fs: %s", time.monotonic() - started, raw.strip())
-        try:
-            items = json.loads(raw).get("items", [])
-        except (json.JSONDecodeError, AttributeError):
-            log.error("codex reply is not the expected JSON")
-            return {}
+def ask_codex(payloads: list[dict], taken: list[str] | None = None) -> dict[str, dict]:
+    """Returns {window id: {"tasks": [...], "name": "..."}} for the windows in payloads."""
+    prompt = PROMPT.format(
+        max_name=window_namer.MAX_NAME_LENGTH,
+        taken=", ".join(sorted(taken or [])) or "(none)",
+        windows=json.dumps(payloads, ensure_ascii=False, indent=1),
+    )
+    reply = codex_batch.ask(prompt, OUTPUT_SCHEMA, state_dir=STATE_DIR, log=log,
+                            label=f"summarising {[p['id'] for p in payloads]}")
     result: dict[str, dict] = {}
-    for item in items:
+    for item in (reply or {}).get("items", []):
         if not item.get("id"):
             continue
         tasks = []
         for task in item.get("tasks", []):
             summary = str(task.get("summary", "")).strip()
+            change = str(task.get("change", "")).strip()
+            if re.search(r"沿用|无变化|没有变化|不变", change):
+                change = ""  # the model sometimes narrates "unchanged" instead of leaving it empty
             if summary:
                 tasks.append({
                     "summary": summary,
                     "next": str(task.get("next", "")).strip(),
+                    "change": change,
                     "panes": [str(p) for p in task.get("panes", [])],
                 })
-        result[str(item["id"])] = {"tasks": tasks}
+        result[str(item["id"])] = {"tasks": tasks, "name": str(item.get("name", "")).strip()}
     return result
 
 
-def build_board(windows: list[Window], cache: dict, now: float, allow_llm: bool) -> tuple[dict, dict, bool]:
-    """Return (board, updated cache, whether codex was called)."""
+def cover_panes(window: Window, tasks: list[dict]) -> list[dict]:
+    """Every assistant pane must show up exactly under its own window.
+
+    In a batched call the model sometimes attributes another window's pane ids
+    to this window, so foreign ids are stripped (tasks left without a pane are
+    dropped), then a title-only task is added for any assistant pane the model
+    skipped, and tasks are ordered the way their panes sit in the window."""
+    own = {p.id for p in window.panes}
+    kept = []
+    for task in tasks:
+        panes = [p for p in task.get("panes", []) if p in own]
+        if panes:
+            kept.append({**task, "panes": panes})
+    tasks = kept
+    covered = {p for t in tasks for p in t.get("panes", [])}
+    for pane in window.assistant_panes:
+        if pane.id not in covered and pane.title:
+            tasks.append({"summary": pane.title, "next": "", "change": "", "panes": [pane.id]})
+    order = {p.id: i for i, p in enumerate(window.panes)}
+    return sorted(tasks, key=lambda t: min((order.get(p, 99) for p in t.get("panes", [])), default=99))
+
+
+def window_todo_count(name: str, todos: list[dict]) -> int:
+    """Open todos tagged @<window name> (icon stripped)."""
+    bare = re.sub(r"^\S+\s+", "", name) if re.match(r"^[^\w\s]+\s", name) else name
+    return sum(1 for t in todos if not t["done"] and bare in t["tags"])
+
+
+def wants_summary(window: Window, cached: dict | None, digest: str, now: float,
+                  allow_llm: bool, allow_fast: bool, attended: bool) -> bool:
+    if cached and cached.get("hash") == digest:
+        return False  # nothing on screen changed
+    if cached and "state" in cached and cached["state"] != window.state:
+        return allow_fast  # badge state changed: fast lane
+    if not attended:
+        return False  # overnight: only state changes are worth a call
+    if not allow_llm:
+        return False
+    if window.settled(now):
+        return True
+    return not cached or now - cached.get("at", 0) >= RUNNING_REFRESH
+
+
+def build_board(windows: list[Window], cache: dict, now: float, allow_llm: bool, next_llm_at: float = 0,
+                todos: list[dict] | None = None, naming: dict[str, window_namer.Window] | None = None,
+                allow_fast: bool | None = None, attended: bool = True) -> tuple[dict, dict, bool]:
+    """Return (board, updated cache, whether codex was called).
+
+    `naming` maps window ids that still need a name to window_namer windows;
+    those ride along in the same codex call and are renamed on reply."""
+    allow_fast = allow_llm if allow_fast is None else allow_fast
+    naming = naming or {}
     pending: list[dict] = []
     contexts: dict[str, str] = {}
     for window in windows:
         digest, payload = context_of(window)
         contexts[window.id] = digest
         cached = cache.get(window.id)
-        if cached and cached.get("hash") == digest:
-            continue
         if not any(p["tail"] for p in payload["panes"]):
             continue  # nothing on screen yet
-        if allow_llm and window.wants_summary(now, cached):
+        needs_name = window.id in naming and allow_llm
+        if needs_name or wants_summary(window, cached, digest, now, allow_llm, allow_fast, attended):
+            payload = with_previous(payload, cached)
+            if window.id in naming:
+                payload = {**payload, "name_needed": True, "naming": window_namer.describe(naming[window.id])}
             pending.append(payload)
 
     called = False
     if pending:
         called = True
-        for window_id, summary in ask_codex(pending).items():
-            cache[window_id] = {"hash": contexts.get(window_id, ""), "at": int(now), **summary}
+        by_id = {w.id: w for w in windows}
+        taken = [w.name.split(" ")[-1].rsplit(":", 1)[-1] for w in windows if w.id not in naming]
+        renames: dict[str, dict] = {}
+        for window_id, reply in ask_codex(pending, taken).items():
+            window = by_id.get(window_id)
+            if not window:
+                continue
+            tasks = cover_panes(window, reply.get("tasks", []))
+            previous = {t.get("summary"): t for t in cache.get(window_id, {}).get("tasks", [])}
+            for task in tasks:
+                if task.get("change"):
+                    task["changed_at"] = int(now)
+                else:
+                    old = previous.get(task.get("summary"), {})
+                    task["change"], task["changed_at"] = old.get("change", ""), old.get("changed_at", 0)
+            cache[window_id] = {"hash": contexts.get(window_id, ""), "at": int(now), "state": window.state, "tasks": tasks}
+            if window_id in naming and reply.get("name"):
+                renames[window_id] = window_namer.finish(naming[window_id], reply["name"])
+        if renames:
+            window_namer.apply(renames)
+            for window_id, entry in renames.items():
+                by_id[window_id].name = entry["name"]
 
+    todos = todos or []
     rows = []
     for window in windows:
         cached = cache.get(window.id, {})
-        state = window.state
         tasks = cached.get("tasks", [])
         rows.append({
             "id": window.id,
@@ -356,22 +390,28 @@ def build_board(windows: list[Window], cache: dict, now: float, allow_llm: bool)
             "session": window.session,
             "name": window.name,
             "icon": window.icon,
-            "state": state,
-            "group": group_of(state, tasks),
+            "state": window.state,
+            "group": group_of(window.state, tasks),
             "repo": window.git_pane.repo if window.git_pane else "",
             "branch": window.git_pane.branch if window.git_pane else "",
+            "todo_count": window_todo_count(window.name, todos),
             "activity_at": window.activity,
             "tasks": tasks,
             "summary_stale": bool(cached) and cached.get("hash") != contexts.get(window.id, cached.get("hash")),
             "panes": [{"tool": p.tool, "title": p.title} for p in window.assistant_panes],
         })
-    # Stable within a state group: session then window index, so cards only
-    # move when their state changes, not on every keystroke.
-    rows.sort(key=lambda r: (GROUP_ORDER[r["group"]], STATE_ORDER[r["state"]], r["session"], r["index"]))
+    rows.sort(key=lambda r: (r["session"], r["index"]))  # tmux order; the group only colours the card
     live = {w.id for w in windows}
     for stale in [k for k in cache if k not in live]:
         cache.pop(stale, None)
-    return {"generated_at": int(now), "windows": rows}, cache, called
+    if called:
+        next_llm_at = now + LLM_MIN_GAP
+    elif allow_llm:
+        next_llm_at = now + INTERVAL
+    return {
+        "generated_at": int(now), "next_refresh_at": int(next_llm_at), "attended": attended,
+        "week": todo_notes.week_id(), "todos": todos, "windows": rows,
+    }, cache, called
 
 
 class Board:
@@ -381,18 +421,32 @@ class Board:
     def round(self, print_only: bool = False) -> dict:
         now = time.time()
         cache = load_cache()
-        allow_llm = now - self.last_llm_at >= LLM_MIN_GAP
-        board, cache, called = build_board(list_windows(), cache, now, allow_llm)
+        attended = user_idle_seconds() < UNATTENDED_AFTER
+        gap = LLM_MIN_GAP if attended else UNATTENDED_GAP
+        allow_llm = now - self.last_llm_at >= gap
+        allow_fast = now - self.last_llm_at >= (FAST_GAP if attended else UNATTENDED_GAP)
+        todos = [item.as_dict() for item in todo_notes.this_week_items(todo_notes.load_vaults())]
+
+        # Windows window_namer has not named yet ride along in the same codex call.
+        to_name, to_release = window_namer.plan(window_namer.list_windows())
+        for window in to_release:
+            window_namer.release(window)
+        naming = {w.id: w for w in to_name}
+
+        board, cache, called = build_board(list_windows(), cache, now, allow_llm, self.last_llm_at + gap,
+                                           todos, naming, allow_fast, attended)
         if called:
             self.last_llm_at = now
         write_json(CACHE_PATH, cache)
         write_json(BOARD_PATH, board)
         if print_only:
+            print(f"attended={attended} called={called}")
             for row in board["windows"]:
                 age = int((now - row["activity_at"]) / 60)
-                print(f"{row['index']:>3} {row['state']:<8} {age:>4}m  {row['name']}")
+                print(f"{row['index']:>3} {row['group']:<10} {age:>4}m  {row['name']}")
                 for task in row["tasks"]:
-                    print(f"      {task['summary']}  ->  {task['next']}  {task['panes']}")
+                    change = f"  [{task['change']}]" if task.get("change") else ""
+                    print(f"      {task['summary']}  ->  {task['next']}{change}  {task['panes']}")
         return board
 
 
@@ -406,9 +460,12 @@ def main(argv: list[str]) -> int:
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
     log.addHandler(handler)
     log.setLevel(logging.INFO)
+    window_namer.setup_logging()
     board = Board()
     if args.daemon:
-        return run_daemon(STATE_DIR / ".daemon.lock", Path(__file__).resolve(), INTERVAL, lambda: board.round() and None, log)
+        here = Path(__file__).resolve()
+        sources = [here] + [here.with_name(n) for n in ("todo_notes.py", "daemon_lock.py", "tmux_panes.py", "codex_batch.py", "window_namer.py")]
+        return run_daemon(STATE_DIR / ".daemon.lock", here, INTERVAL, lambda: board.round() and None, log, sources=sources)
     board.round(print_only=args.print_only)
     return 0
 
