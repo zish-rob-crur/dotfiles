@@ -4,7 +4,8 @@
 --
 -- The window is a real NSWindow (hs.webview): drag it to any screen, resize
 -- it, close it with the title-bar button and bring it back with ⌘⇧B. Its
--- frame is remembered across reloads.
+-- frame is remembered across reloads. ⌘⇧D opens this week's todo files in
+-- Neovide (so does clicking the "This week" heading).
 
 local M = {}
 
@@ -12,13 +13,14 @@ local HOME = assert(os.getenv("HOME"), "HOME is required")
 local STATE_DIR = HOME .. "/.cache/tmux-task-board"
 local BOARD_PATH = STATE_DIR .. "/board.json"
 local FRAME_SETTING = "taskBoardFrame"
+local TODO_TOOL = HOME .. "/.local/bin/todo-notes"
 -- Default placement when no frame is remembered: right half of the first
 -- matching screen, else any non-primary screen.
 local SCREEN_NAMES = { "T270LG" }
 local TOGGLE_HOTKEY = { { "cmd", "shift" }, "b" }
+local EDIT_HOTKEY = { { "cmd", "shift" }, "d" }  -- open this week's todo files in Neovide
 
 local state = { view = nil, watcher = nil, board = nil, hotkey = nil, frame_timer = nil }
-M._state = state -- for `hs -c` inspection
 
 local PAGE = [[
 <!doctype html>
@@ -28,27 +30,35 @@ local PAGE = [[
   :root {
     --bg: #1e2326; --card: #272e33; --card-hover: #2e373c; --text: #d3c6aa; --muted: #859289; --tag: #a7b0a8;
     --title: #dbbc7f; --attention: #dbbc7f; --error: #e67e80; --review: #a7c080; --working: #7fbbb3; --parked: #4f585e;
+    --change: #e69875; --claude: #e69875; --codex: #83c092;
+    /* repo colours, picked by a hash of the repo name */
+    --p0: #e67e80; --p1: #e69875; --p2: #dbbc7f; --p3: #a7c080; --p4: #83c092; --p5: #7fbbb3; --p6: #d699b6; --p7: #a7b0a8;
   }
   html, body { margin: 0; background: var(--bg); color: var(--text);
     font: 13px/1.5 "BoardIcons", "Maple Mono NF CN", "JetBrainsMono Nerd Font", "PingFang SC", monospace; }
   header { position: sticky; top: 0; background: var(--bg); padding: 10px 14px 6px; display: flex; align-items: baseline; gap: 12px;
-    border-bottom: 1px solid #2e373c; z-index: 1; }
+    border-bottom: 1px solid #2e373c; z-index: 1; white-space: nowrap; overflow: hidden; }
   header h1 { font-size: 15px; margin: 0; color: var(--title); font-weight: 600; }
   header .counts { display: flex; gap: 10px; font-size: 12px; }
   header .counts span::before { content: "●"; margin-right: 4px; }
-  header .updated { margin-left: auto; color: var(--muted); font-size: 11px; }
+  header .updated { margin-left: auto; color: var(--muted); font-size: 11px; flex-shrink: 0; }
   main { padding: 4px 10px 12px; }
-  h2 { font-size: 11px; font-weight: 600; letter-spacing: .08em; margin: 10px 2px 4px; text-transform: uppercase; }
-  h2 .n { color: var(--muted); font-weight: 400; margin-left: 6px; }
-  /* Wider windows get more columns automatically. */
-  .group { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 5px; }
-  .card { background: var(--card); border-left: 3px solid var(--parked); border-radius: 5px; padding: 5px 9px; cursor: pointer; }
+  h2 { font-size: 11px; font-weight: 600; letter-spacing: .08em; margin: 10px 2px 4px; text-transform: uppercase; color: var(--muted); }
+  .pill { font-size: 10px; padding: 0 6px; border-radius: 8px; background: #3a444a; color: var(--text); letter-spacing: .04em; }
+  .pill.attention { background: #4a4330; color: var(--attention); } .pill.error { background: #4a3336; color: var(--error); }
+  .pill.review { background: #34412f; color: var(--review); } .pill.working { background: #2f4145; color: var(--working); }
+  .pill.parked { color: var(--muted); }
+  /* Masonry-style columns: cards keep their natural height; a second column only appears past ~1060px. */
+  .group { column-width: 520px; column-gap: 8px; }
+  .card { background: var(--card); border-left: 3px solid var(--parked); border-radius: 5px; padding: 5px 9px; cursor: pointer;
+    break-inside: avoid; margin-bottom: 5px; }
   .card:hover { background: var(--card-hover); }
-  .meta { display: flex; align-items: baseline; gap: 6px; font-size: 11px; color: var(--tag); margin-bottom: 1px; }
+  /* The meta line never wraps: the branch is the only part allowed to shrink, with an ellipsis. */
+  .meta { display: flex; align-items: baseline; gap: 6px; font-size: 11px; color: var(--tag); margin-bottom: 1px; white-space: nowrap; }
   .meta .idx { color: var(--muted); }
-  .meta .git { color: var(--muted); }
+  .meta .git { color: var(--muted); flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .meta .git::before { content: "·"; margin-right: 6px; }
-  .meta .age { margin-left: auto; color: var(--muted); white-space: nowrap; }
+  .meta .age { margin-left: auto; color: var(--muted); padding-left: 8px; }
   .task + .task { margin-top: 3px; padding-top: 3px; border-top: 1px dashed #3a444a; }
   .summary { color: var(--text); }
   .next { color: var(--muted); }
@@ -56,15 +66,50 @@ local PAGE = [[
   /* One line per task: "summary → next"; the next step wraps under it only when the card is narrow. */
   .task { display: flex; gap: 8px; flex-wrap: wrap; }
   .next { white-space: nowrap; }
-  .attention .next { color: var(--attention); } .error .next { color: var(--error); }
-  .review .next { color: var(--review); } .working .next { color: var(--working); }
-  .attention { border-left-color: var(--attention); } .error { border-left-color: var(--error); }
-  .review { border-left-color: var(--review); } .working { border-left-color: var(--working); }
+  .change { color: var(--change); white-space: nowrap; }
+  .change::before { content: "Δ "; }
+  .card.attention .next { color: var(--attention); } .card.error .next { color: var(--error); }
+  .card.review .next { color: var(--review); } .card.working .next { color: var(--working); }
+  .card.attention { border-left-color: var(--attention); background: #2c2e2b; } .card.error { border-left-color: var(--error); background: #2f2a2b; }
+  .card.review { border-left-color: var(--review); background: #272f2b; } .card.working { border-left-color: var(--working); background: #262f31; }
+  .card.attention:hover { background: #33352f; } .card.review:hover { background: #2d372f; } .card.working:hover { background: #2b3739; }
+  .icon.claude { color: var(--claude); } .icon.codex { color: var(--codex); }
+  .name { color: var(--text); }
+  .repo-0 .git { color: var(--p0); } .repo-1 .git { color: var(--p1); } .repo-2 .git { color: var(--p2); } .repo-3 .git { color: var(--p3); }
+  .repo-4 .git { color: var(--p4); } .repo-5 .git { color: var(--p5); } .repo-6 .git { color: var(--p6); } .repo-7 .git { color: var(--p7); }
+  .git .branch { opacity: .75; }
   .parked .summary { color: var(--muted); font-size: 13px; } .parked .next { display: none; }
   .stale .summary, .stale .next { opacity: .6; }
   h2.attention, .counts .attention { color: var(--attention); } h2.review, .counts .review { color: var(--review); }
   h2.working, .counts .working { color: var(--working); } h2.parked, .counts .parked { color: var(--muted); }
   .titles { color: var(--muted); }
+  /* This week's todos */
+  .todos { margin: 4px 0 10px; }
+  hr { border: 0; border-top: 1px solid #3a444a; margin: 14px 0 6px; }
+  h2.week { cursor: pointer; } h2.week:hover { color: var(--text); }
+  h2.week::after { content: "  open in Neovide"; font-weight: 400; letter-spacing: 0; text-transform: none; opacity: 0; }
+  h2.week:hover::after { opacity: .7; }
+  .todo { display: flex; gap: 8px; align-items: baseline; padding: 3px 6px; border-radius: 4px; }
+  .todo:hover { background: var(--card-hover); }
+  .todo input { margin: 0; accent-color: var(--review); cursor: pointer; }
+  .todo .vault { font-size: 10px; color: var(--muted); border: 1px solid #3a444a; border-radius: 6px; padding: 0 5px; }
+  .todo .text { flex: 1 1 auto; }
+  .todo.done .text { color: var(--muted); text-decoration: line-through; }
+  .todo .tag { color: var(--working); font-size: 12px; }
+  .todo .src, .todo .from { color: var(--muted); font-size: 11px; }
+  .todo .due { color: var(--attention); font-size: 11px; }
+  .todo.priority .text::before { content: "⏫ "; }
+  .todo.overdue .due { color: var(--error); }
+  .meta .todos-n { color: var(--review); }
+  h3.section { font-size: 11px; font-weight: 600; margin: 8px 6px 2px; letter-spacing: .06em; }
+  h3.section .vault { font-weight: 400; color: var(--muted); margin-left: 6px; font-size: 10px; }
+  .sec-0 { color: var(--p0); } .sec-1 { color: var(--p1); } .sec-2 { color: var(--p2); } .sec-3 { color: var(--p3); }
+  .sec-4 { color: var(--p4); } .sec-5 { color: var(--p5); } .sec-6 { color: var(--p6); } .sec-7 { color: var(--p7); }
+  .todo.sec-0 { border-left: 3px solid var(--p0); } .todo.sec-1 { border-left: 3px solid var(--p1); }
+  .todo.sec-2 { border-left: 3px solid var(--p2); } .todo.sec-3 { border-left: 3px solid var(--p3); }
+  .todo.sec-4 { border-left: 3px solid var(--p4); } .todo.sec-5 { border-left: 3px solid var(--p5); }
+  .todo.sec-6 { border-left: 3px solid var(--p6); } .todo.sec-7 { border-left: 3px solid var(--p7); }
+  .todo { border-left: 3px solid transparent; }
 </style>
 <header><h1>Task Board</h1><div class="counts" id="counts"></div><div class="updated" id="updated"></div></header>
 <main id="main"></main>
@@ -84,18 +129,69 @@ local PAGE = [[
   };
   const stripIcon = name => { const m = /^(\S+)\s+(.*)$/.exec(name || ""); return m && !/\w/.test(m[1]) ? m[2] : (name || ""); };
   const shorten = (s, n) => (s && s.length > n) ? s.slice(0, n - 1) + "…" : (s || "");
+  const repoClass = repo => { let h = 0; for (const c of repo || "") h = (h * 31 + c.charCodeAt(0)) >>> 0; return "repo-" + (h % 7); };
+  const toolClass = icon => icon === "\u{2733}" ? "claude" : icon === "\u{E00B}" ? "codex" : "";
   function card(w, multi) {
-    const tasks = (w.tasks || []).map(t => `<div class="task"><div class="summary">${esc(t.summary)}</div><div class="next">${esc(t.next)}</div></div>`);
+    const recent = t => t.change && t.changed_at && (Date.now() / 1000 - t.changed_at) < 1800;
+    const tasks = (w.tasks || []).map(t => `<div class="task"><div class="summary">${esc(t.summary)}</div><div class="next">${esc(t.next)}</div>${recent(t) ? `<div class="change">${esc(t.change)}</div>` : ""}</div>`);
     const titles = (!tasks.length && w.panes && w.panes.length)
       ? `<div class="titles">${esc(w.panes.map(p => p.title).filter(Boolean).join("  ·  "))}</div>` : "";
-    const idx = (multi ? shorten(w.session, 12) + ":" : "") + w.index;
-    const cls = [w.group, w.state === "error" ? "error" : "", w.summary_stale ? "stale" : ""].join(" ");
+    const idx = w.index;
+    const cls = [w.group, w.state === "error" ? "error" : "", w.summary_stale ? "stale" : "", repoClass(w.repo)].join(" ");
     return `<div class="card ${cls}" data-id="${esc(w.id)}" data-session="${esc(w.session)}">
-      <div class="meta"><span class="idx">${esc(idx)}</span><span class="icon">${esc(w.icon)}</span><span class="name">${esc(stripIcon(w.name))}</span>
-        ${w.repo ? `<span class="git">${esc(w.repo)}${w.branch ? " @ " + esc(w.branch) : ""}</span>` : ""}
+      <div class="meta"><span class="idx">${esc(idx)}</span><span class="icon ${toolClass(w.icon)}">${esc(w.icon)}</span><span class="name">${esc(stripIcon(w.name))}</span>
+        <span class="pill ${w.state === "error" ? "error" : w.group}">${LABEL[w.group] || w.group}</span>
+        ${w.todo_count ? `<span class="todos-n">☐ ${w.todo_count}</span>` : ""}
+        ${w.repo ? `<span class="git">${esc(w.repo)}${w.branch ? ` <span class="branch">@ ${esc(w.branch)}</span>` : ""}</span>` : ""}
         <span class="age">${age(w.activity_at)}</span></div>
       ${w.group === "parked" ? (tasks[0] || titles) : (tasks.join("") || titles)}
     </div>`;
+  }
+  const today = () => new Date().toISOString().slice(0, 10);
+  // Section colours: hash picks a preferred slot, collisions move to the next
+  // free one, so sections on screen never share a colour (7 colours; slot 7
+  // of the palette is grey and reads as "no colour").
+  const hash7 = name => Array.from(name.toLowerCase()).reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 0) % 7;
+  let sectionSlots = {};
+  function assignSectionColours(todos) {
+    sectionSlots = {};
+    const used = new Set();
+    for (const name of [...new Set(todos.map(t => t.section).filter(Boolean))]) {
+      let slot = hash7(name);
+      for (let i = 0; i < 7 && used.has(slot); i++) slot = (slot + 1) % 7;
+      used.add(slot); sectionSlots[name] = slot;
+    }
+  }
+  const sectionClass = name => name && sectionSlots[name] !== undefined ? "sec-" + sectionSlots[name] : "";
+  function todoRow(t, i) {
+    const cls = ["todo", t.done ? "done" : "", t.priority ? "priority" : "", (!t.done && t.due && t.due < today()) ? "overdue" : "", sectionClass(t.section)].join(" ");
+    return `<label class="${cls}" data-i="${i}"><input type="checkbox" ${t.done ? "checked" : ""}>
+      <span class="vault">${esc(t.vault)}</span><span class="text">${esc(t.text)}</span>
+      ${t.tags.map(x => `<span class="tag">@${esc(x)}</span>`).join(" ")}
+      ${t.sources.map(x => `<span class="src">#${esc(x)}</span>`).join(" ")}
+      ${t.due ? `<span class="due">📅 ${esc(t.due.slice(5))}</span>` : ""}
+      ${t.from_week ? `<span class="from">from ${esc(t.from_week.slice(5))}</span>` : ""}</label>`;
+  }
+  function renderTodos() {
+    const todos = board.todos || [];
+    assignSectionColours(todos);
+    const open = todos.filter(t => !t.done), done = todos.filter(t => t.done);
+    if (!todos.length) return "";
+    // Group by vault + "## Heading" in file order; ungrouped items come first within a vault.
+    let html = "", key = null;
+    todos.forEach((t, i) => {
+      if (t.done) return;
+      const k = t.vault + "\u0000" + (t.section || "");
+      if (k !== key) {
+        key = k;
+        html += t.section
+          ? `<h3 class="section ${sectionClass(t.section)}">${esc(t.section)}<span class="vault">${esc(t.vault)}</span></h3>`
+          : `<h3 class="section"><span class="vault">${esc(t.vault)}</span></h3>`;
+      }
+      html += todoRow(t, i);
+    });
+    return `<hr><h2 class="week" id="week">This week · ${esc(board.week || "")}<span class="n">· ${open.length} open · ${done.length} done</span></h2>
+      <div class="todos">${html}</div>`;
   }
   function render() {
     const wins = board.windows || [];
@@ -103,12 +199,39 @@ local PAGE = [[
     const counts = {};
     wins.forEach(w => counts[w.group] = (counts[w.group] || 0) + 1);
     document.getElementById("counts").innerHTML = GROUPS.filter(g => counts[g]).map(g => `<span class="${g}">${LABEL[g]} ${counts[g]}</span>`).join("");
-    document.getElementById("updated").textContent = board.generated_at ? "Updated " + new Date(board.generated_at * 1000).toTimeString().slice(0, 5) : "";
-    document.getElementById("main").innerHTML = GROUPS.filter(g => counts[g]).map(g =>
-      `<h2 class="${g}">${LABEL[g]}<span class="n">${counts[g]}</span></h2><div class="group">` + wins.filter(w => w.group === g).map(w => card(w, multi)).join("") + `</div>`).join("");
+    renderHeaderTime();
+    // tmux order, one block per session; no regrouping so cards never move.
+    const sessions = [...new Set(wins.map(w => w.session))];
+    document.getElementById("main").innerHTML = sessions.map(s =>
+      (multi ? `<h2>${esc(s)}</h2>` : "") + `<div class="group">` + wins.filter(w => w.session === s).map(w => card(w, multi)).join("") + `</div>`).join("") + renderTodos();
   }
+  // "⟳ 10:22 · next in 48s": the countdown ticks every second, the rest only on data changes.
+  function renderHeaderTime() {
+    const hhmm = t => new Date(t * 1000).toTimeString().slice(0, 5);
+    let text = board.generated_at ? "⟳ " + hhmm(board.generated_at) : "";
+    if (board.next_refresh_at) {
+      const left = Math.round(board.next_refresh_at - Date.now() / 1000);
+      text += " · summaries " + (left > 60 ? "in " + Math.ceil(left / 60) + " min" : left > 0 ? "in " + left + "s" : "checking");
+    }
+    document.getElementById("updated").textContent = text;
+  }
+  setInterval(renderHeaderTime, 1000);
   window.update = b => { board = b; render(); };
+  if (window.webkit && webkit.messageHandlers.board) webkit.messageHandlers.board.postMessage({ ready: true });
   document.addEventListener("click", e => {
+    if (e.target.closest("#week")) {
+      if (window.webkit && webkit.messageHandlers.board) webkit.messageHandlers.board.postMessage({ edit: true });
+      return;
+    }
+    const box = e.target.closest(".todo input");
+    if (box) {
+      const row = box.closest(".todo"), t = (board.todos || [])[Number(row.dataset.i)];
+      if (t && window.webkit && webkit.messageHandlers.board) {
+        t.done = box.checked; row.classList.toggle("done", t.done);  // optimistic; the daemon re-reads the file
+        webkit.messageHandlers.board.postMessage({ todo: { vault: t.vault, line: t.line } });
+      }
+      return;
+    }
     const el = e.target.closest(".card");
     if (el && window.webkit && webkit.messageHandlers.board) webkit.messageHandlers.board.postMessage({ id: el.dataset.id, session: el.dataset.session });
   });
@@ -124,6 +247,58 @@ local function read_board()
   local ok, decoded = pcall(hs.json.decode, contents)
   if ok and type(decoded) == "table" and type(decoded.windows) == "table" then return decoded end
   return nil
+end
+
+-- Open this week's todo files in Neovide, or focus the Neovide we already
+-- opened. Hammerspoon launches Neovide itself so it knows the pid: that is how
+-- the window is found (Neovide's title is not distinctive) and placed.
+local function todo_window()
+  local pid = state.todo_task and state.todo_task:isRunning() and state.todo_task:pid()
+  if not pid then return nil end
+  for _, window in ipairs(hs.window.allWindows()) do
+    local app = window:application()
+    if app and app:pid() == pid then return window end
+  end
+  return nil
+end
+
+local function place_todo_window(attempt)
+  local window = todo_window()
+  if not window then
+    if (attempt or 0) < 80 then hs.timer.doAfter(0.05, function() place_todo_window((attempt or 0) + 1) end) end
+    return
+  end
+  local screen = hs.mouse.getCurrentScreen() or hs.screen.mainScreen()
+  local f = screen:frame()
+  local w, h = math.min(1100, math.floor(f.w * 0.55)), math.min(760, math.floor(f.h * 0.6))
+  window:setFrame({ x = f.x + (f.w - w) / 2, y = f.y + (f.h - h) / 2, w = w, h = h }, 0)
+  window:focus()
+end
+
+local function edit_todos()
+  local existing = todo_window()
+  if existing then existing:focus(); return end
+  local files = {}
+  for line in (hs.execute(TODO_TOOL .. " ensure", true) or ""):gmatch("[^\n]+") do files[#files + 1] = line end
+  if #files == 0 then hs.printf("task board: no todo files (is ~/.config/task-board/config.toml set?)"); return end
+  local neovide = "/opt/homebrew/bin/neovide"
+  if hs.fs.attributes(neovide, "mode") ~= "file" then
+    hs.task.new(TODO_TOOL, nil, { "edit" }):start()  -- terminal fallback inside todo-notes
+    return
+  end
+  state.todo_task = hs.task.new(neovide, nil, { "--", "-O", table.unpack(files) })
+  state.todo_task:setEnvironment({ HOME = HOME, PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin" })
+  if state.todo_task:start() then place_todo_window() end
+end
+M.edit = edit_todos -- also used by raycast/todo-week.sh
+
+local function toggle_todo(todo)
+  local line = tostring(math.tointeger(tonumber(todo.line)) or todo.line)
+  local task = hs.task.new(TODO_TOOL, function(code, out, err)
+    if code ~= 0 then hs.printf("task board: todo toggle failed (%s): %s", tostring(code), err or "") end
+  end, { "toggle", tostring(todo.vault), line })
+  task:setEnvironment({ HOME = HOME, PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin" })
+  if not task:start() then hs.printf("task board: could not start %s", TODO_TOOL) end
 end
 
 local function jump_to(row)
@@ -164,9 +339,18 @@ local function remember_frame()
   if f then hs.settings.set(FRAME_SETTING, { x = f.x, y = f.y, w = f.w, h = f.h }) end
 end
 
-local function push_board()
+-- Push board.json into the page. If the WebKit content process died (blank
+-- white window after display sleep or a reload), the page has no `update`
+-- function any more: reload the HTML once and push again.
+local function push_board(retry)
   if not state.view or not state.board then return end
-  state.view:evaluateJavaScript("window.update(" .. hs.json.encode(state.board) .. ")")
+  local js = "typeof window.update === 'function' && (window.update(" .. hs.json.encode(state.board) .. "), true)"
+  state.view:evaluateJavaScript(js, function(result, err)
+    if result == true or retry then return end
+    local reason = type(err) == "table" and (err.localizedDescription or err.message) or err
+    hs.printf("task board: page lost (%s); reloading html", tostring(reason or "no update()"))
+    state.view:html(PAGE)  -- the page posts {ready=true} when loaded, which pushes again
+  end)
 end
 
 local function reload_board()
@@ -179,20 +363,25 @@ local function build_view()
   local frame = frame_on_some_screen(saved) and saved or default_frame()
   local controller = hs.webview.usercontent.new("board"):setCallback(function(message)
     local body = message and message.body
-    if type(body) == "table" and body.id then jump_to(body) end
+    if type(body) ~= "table" then return end
+    if body.ready then push_board(true)
+    elseif body.edit then edit_todos()
+    elseif body.todo then toggle_todo(body.todo)
+    elseif body.id then jump_to(body) end
   end)
   state.view = hs.webview.new(frame, { developerExtrasEnabled = false }, controller)
+  -- No `utility` mask: a utility panel floats above every other window on
+  -- macOS regardless of the level set here, and the board should not.
   local masks = hs.webview.windowMasks
-  state.view:windowStyle(masks.titled | masks.closable | masks.resizable | masks.utility | masks.nonactivating)
+  state.view:windowStyle(masks.titled | masks.closable | masks.resizable | masks.nonactivating)
   state.view:windowTitle("Task Board")
   state.view:level(hs.drawing.windowLevels.normal)
   state.view:behaviorAsLabels({ "canJoinAllSpaces", "stationary" })
   state.view:allowTextEntry(false)
   state.view:deleteOnClose(false)
-  state.view:html(PAGE)
-  -- The page needs a moment to load before window.update exists.
-  hs.timer.doAfter(0.3, push_board)
+  state.view:html(PAGE)  -- the page posts {ready=true} once loaded; that triggers the first push
   state.view:show()
+  state.view:level(hs.drawing.windowLevels.normal)  -- showing a panel can re-raise its level
 end
 
 -- ⌘⇧B: hidden -> show on top; visible -> hide.
@@ -211,7 +400,7 @@ end
 
 function M.start()
   build_view()
-  reload_board()
+  state.board = read_board()  -- pushed once the page reports ready
   state.watcher = hs.pathwatcher.new(STATE_DIR, function(paths)
     for _, path in ipairs(paths) do
       if path:sub(-#"board.json") == "board.json" then reload_board(); return end
@@ -219,6 +408,12 @@ function M.start()
   end):start()
   state.frame_timer = hs.timer.doEvery(30, remember_frame)
   state.hotkey = hs.hotkey.bind(TOGGLE_HOTKEY[1], TOGGLE_HOTKEY[2], M.toggle)
+  state.edit_hotkey = hs.hotkey.bind(EDIT_HOTKEY[1], EDIT_HOTKEY[2], edit_todos)
+  -- External entry points (Raycast, shell): open "hammerspoon://task-board?action=edit|toggle".
+  hs.urlevent.bind("task-board", function(_, params)
+    local action = params and params.action
+    if action == "edit" then edit_todos() elseif action == "toggle" then M.toggle() end
+  end)
   local previous = hs.shutdownCallback
   hs.shutdownCallback = function()
     M.stop()
@@ -232,6 +427,8 @@ function M.stop()
   if state.watcher then state.watcher:stop() end
   if state.frame_timer then state.frame_timer:stop() end
   if state.hotkey then state.hotkey:delete() end
+  if state.edit_hotkey then state.edit_hotkey:delete() end
+  hs.urlevent.bind("task-board", nil)
   if state.view then state.view:delete() end
   state.view, state.watcher, state.frame_timer, state.hotkey = nil, nil, nil, nil
 end

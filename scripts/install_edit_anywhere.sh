@@ -142,24 +142,12 @@ check_runtime() {
     printf 'Hammerspoon init does not load edit_anywhere.lua.\n' >&2
     exit 1
   }
-  grep -Fq 'global:ctrl+backquote=toggle_quick_terminal' "${DOTFILES_REPO}/ghostty/config" || {
-    printf 'Ghostty config is missing the Edit Anywhere Quick Terminal key binding.\n' >&2
-    exit 1
-  }
-  grep -Eq '^quick-terminal-animation-duration[[:space:]]*=[[:space:]]*0$' "${DOTFILES_REPO}/ghostty/config" || {
-    printf 'Ghostty Quick Terminal animation must be disabled for Edit Anywhere.\n' >&2
-    exit 1
-  }
-  grep -Fq 'edit-anywhere-quick-terminal' "${DOTFILES_REPO}/.zshrc" || {
-    printf 'The Quick Terminal dispatcher hook is missing from .zshrc.\n' >&2
-    exit 1
-  }
+  [[ -x /opt/homebrew/bin/neovide ]] || log "Warning: neovide was not found; install it with: brew install --cask neovide"
 }
 
 check_host_apps() {
   [[ "$(uname -s)" == "Darwin" ]] || return 0
   [[ -d /Applications/Hammerspoon.app ]] || log "Warning: Hammerspoon.app was not found in /Applications"
-  [[ -d /Applications/Ghostty.app ]] || log "Warning: Ghostty.app was not found in /Applications"
 }
 
 check_nvim
@@ -178,6 +166,8 @@ link_path "${DOTFILES_REPO}/edit-anywhere/nvim" "${HOME}/.local/share/edit-anywh
 link_path "${DOTFILES_REPO}/hammerspoon/init.lua" "${HOME}/.hammerspoon/init.lua"
 link_path "${DOTFILES_REPO}/hammerspoon/edit_anywhere.lua" "${HOME}/.hammerspoon/edit_anywhere.lua"
 link_path "${DOTFILES_REPO}/hammerspoon/task_board.lua" "${HOME}/.hammerspoon/task_board.lua"
+link_path "${DOTFILES_REPO}/tmux/todo_notes.py" "${HOME}/.local/bin/todo-notes"
+link_path "${DOTFILES_REPO}/.agents/skills/todo" "${HOME}/.agents/skills/todo"
 
 found_bin=0
 for source in "${DOTFILES_REPO}"/bin/edit-anywhere-*; do
@@ -195,5 +185,5 @@ log "Installed from ${DOTFILES_REPO}"
 if (( DRY_RUN )); then
   log "Dry-run complete; no files were changed."
 else
-  log "Reload Hammerspoon and restart the dedicated Ghostty Quick Terminal dispatcher to activate this protocol version."
+  log "Reload Hammerspoon to activate this protocol version."
 fi
