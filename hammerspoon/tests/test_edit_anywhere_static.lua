@@ -103,11 +103,11 @@ contains(active, "owner_instance_uuid = owner.hammerspoon_instance_uuid", "activ
 contains(active, "update_owner(session, stage)", "active adoption must atomically rewrite the owner")
 excludes(active, "release_owner", "a dead or mismatched generation must not release the lock")
 
-local show_terminal = function_body("show_quick_terminal", "clamp")
+local show_terminal = function_body("show_editor_window", "clamp")
 contains(show_terminal, "terminal:isVisible()", "resume must inspect the existing Quick Terminal")
 contains(show_terminal, "terminal:focus()", "a visible Quick Terminal must be focused, not toggled away")
 
-local placement = function_body("place_quick_terminal", "observe_quick_terminal")
+local placement = function_body("place_editor_window", "observe_editor_window")
 contains(placement, "visible.w * 0.46, 1180", "Quick Terminal width must stay compact on large displays")
 contains(placement, "visible.h * 0.44, 680", "Quick Terminal height must stay compact on large displays")
 

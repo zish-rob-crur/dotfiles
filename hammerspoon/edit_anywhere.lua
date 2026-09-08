@@ -6,18 +6,13 @@ local CACHE_DIR = HOME .. "/.cache/edit-anywhere"
 local SESSIONS_DIR = CACHE_DIR .. "/sessions"
 local FRONTEND_LOCK_DIR = CACHE_DIR .. "/frontend.lock"
 local OWNER_PATH = FRONTEND_LOCK_DIR .. "/owner.json"
-local FIFO_PATH = CACHE_DIR .. "/quick-terminal.fifo"
-local DISPATCHER_HEARTBEAT_PATH = CACHE_DIR .. "/dispatcher.heartbeat"
-local DISPATCHER_PATH = HOME .. "/.local/bin/edit-anywhere-quick-terminal"
 local RUNNER_PATH = HOME .. "/.local/bin/edit-anywhere-nvim"
 local NEOVIDE_PATH = "/opt/homebrew/bin/neovide"
 local SERVER_PATH = HOME .. "/.local/bin/edit-anywhere-server"
 local SERVER_PID_PATH = CACHE_DIR .. "/server/nvim.pid"
 local OCR_BINARY = CACHE_DIR .. "/edit-anywhere-ocr-bin"
 local OCR_FALLBACK = HOME .. "/.local/bin/edit-anywhere-ocr"
-local QUICK_TERMINAL_TITLE = "__EDIT_ANYWHERE_QUICK_TERMINAL__"
-local QUICK_TERMINAL_SESSION_TITLE = "__EDIT_ANYWHERE_SESSION__"
-local QUICK_TERMINAL_READY_TITLE = "EDIT_ANYWHERE_READY:"
+local EDITOR_READY_TITLE = "EDIT_ANYWHERE_READY:" -- the server sets this window title once the session is editable
 local LEASE_MS = 3000
 local RECLAIM_GRACE_MS = 2000
 local WRITEBACK_TIMEOUT_SECONDS = 2
@@ -325,14 +320,6 @@ local function valid_runtime_state(runtime_state, owner, accepted_decision)
     and runtime_state.updated_at_unix_ms >= accepted_decision.decided_at_unix_ms
 end
 
-local function valid_dispatcher_metrics(metrics, session)
-  return has_only_keys(metrics, {
-    "protocol_version", "session_id", "dispatch_ack_at_unix_ms", "dispatcher_pid",
-  }) and metrics.protocol_version == PROTOCOL_VERSION and metrics.session_id == session.id
-    and is_integer(metrics.dispatch_ack_at_unix_ms) and metrics.dispatch_ack_at_unix_ms >= session.created_at_ms
-    and is_integer(metrics.dispatcher_pid) and metrics.dispatcher_pid > 0
-end
-
 local function server_json(command, ...)
   if command ~= "health" and command ~= "status" and command ~= "open" then return nil end
   if hs.fs.attributes(SERVER_PATH, "mode") ~= "file" then return nil end
@@ -380,7 +367,6 @@ local function paths_for(id)
     screenshot = dir .. "/source.png",
     metrics_dir = dir .. "/metrics",
     metrics = dir .. "/metrics/hammerspoon.json",
-    dispatcher_metrics = dir .. "/metrics/dispatcher.json",
   }
 end
 
@@ -496,62 +482,45 @@ local function write_metrics(session)
   })
 end
 
-local function toggle_quick_terminal()
-  -- Ghostty's global keybind (ctrl+backquote) ignores hs.eventtap's synthetic
-  -- keystroke, so post it through System Events, which Ghostty does honour.
-  local ok = hs.osascript.applescript('tell application "System Events" to key code 50 using control down')
-  if not ok then hs.eventtap.keyStroke({ "ctrl" }, "`", 0) end
-end
-
+-- The editor window is the Neovide instance Hammerspoon launched; it is
+-- recognised by the title the server sets for this session.
 local function title_matches(window, session)
   local ok, title = pcall(function() return window:title() end)
   if not ok or type(title) ~= "string" then return false end
-  if title:find(QUICK_TERMINAL_TITLE, 1, true) then return true end
-  if title:find(session.id, 1, true) and title:find(QUICK_TERMINAL_SESSION_TITLE, 1, true) then return true end
-  return title:find(session.id, 1, true) and title:find(QUICK_TERMINAL_READY_TITLE, 1, true)
+  return title:find(session.id, 1, true) and title:find(EDITOR_READY_TITLE, 1, true)
 end
 
-local function find_quick_terminal(session)
-  if session.quick_terminal_window_id then
-    local known = hs.window.get(session.quick_terminal_window_id)
+local function find_editor_window(session)
+  if session.editor_window_id then
+    local known = hs.window.get(session.editor_window_id)
     if known then return known end
   end
   for _, window in ipairs(hs.window.allWindows()) do
     if title_matches(window, session) then
-      session.quick_terminal_window_id = window:id()
+      session.editor_window_id = window:id()
       return window
     end
   end
   return nil
 end
 
--- Editor transport: Neovide attached straight to the server socket when it is
--- installed; otherwise the Ghostty Quick Terminal + FIFO dispatcher chain.
-local function neovide_mode()
-  return hs.fs.attributes(NEOVIDE_PATH, "mode") == "file"
-end
-
-local function show_quick_terminal(session)
-  local terminal = find_quick_terminal(session)
-  if terminal then
-    local ok, visible = pcall(function() return terminal:isVisible() end)
-    if ok and visible then
-      local app = terminal:application()
-      if app then app:activate(true) end
-      pcall(function() terminal:focus() end)
-      return
-    end
+local function show_editor_window(session)
+  local terminal = find_editor_window(session)
+  if not terminal then return end
+  local ok, visible = pcall(function() return terminal:isVisible() end)
+  if ok and visible then
+    local app = terminal:application()
+    if app then app:activate(true) end
+    pcall(function() terminal:focus() end)
   end
-  if neovide_mode() then return end
-  toggle_quick_terminal()
 end
 
 local function clamp(value, low, high)
   return math.max(low, math.min(value, high))
 end
 
-local function place_quick_terminal(session, terminal)
-  if session.quick_terminal_placed or not session.source_frame or not session.source_screen then return end
+local function place_editor_window(session, terminal)
+  if session.editor_placed or not session.source_frame or not session.source_screen then return end
   local visible, frame, source = session.source_screen:frame(), terminal:frame(), session.source_frame
   local inset, gap = 12, 8
   frame.w = math.min(frame.w, visible.w * 0.46, 1180)
@@ -583,22 +552,22 @@ local function place_quick_terminal(session, terminal)
   end
   frame.x, frame.y = chosen.x, chosen.y
   pcall(function() terminal:setFrame(frame, 0) end)
-  session.quick_terminal_placed = true
+  session.editor_placed = true
   -- A window launched by hs.task is not always activated by macOS.
   local app = terminal:application()
   if app then app:activate(true) end
   pcall(function() terminal:focus() end)
 end
 
-local function observe_quick_terminal(session)
+local function observe_editor_window(session)
   if session.window_timer then return end
   local attempts = 0
   session.window_timer = hs.timer.doEvery(0.025, function()
     if not state.sessions[session.id] then return end
     attempts = attempts + 1
-    local terminal = find_quick_terminal(session)
+    local terminal = find_editor_window(session)
     if terminal then
-      place_quick_terminal(session, terminal)
+      place_editor_window(session, terminal)
       local focused = hs.window.focusedWindow()
       if not session.qt_focused_ms and not (focused and focused:id() == terminal:id()) then
         -- Keep asking until macOS actually brings the editor to the front;
@@ -626,18 +595,10 @@ local function observe_quick_terminal(session)
   end)
 end
 
-local function hide_quick_terminal(session)
-  if neovide_mode() then
-    -- The editor is our own child process; closing it is the whole "hide".
-    local task = session.dispatch_task
-    if task then pcall(function() task:terminate() end); session.dispatch_task = nil end
-    return
-  end
-  local terminal = find_quick_terminal(session)
-  if terminal then
-    local ok, visible = pcall(function() return terminal:isVisible() end)
-    if ok and visible then toggle_quick_terminal() end
-  end
+local function close_editor(session)
+  -- The editor is our own child process; closing it is the whole "hide".
+  local task = session.dispatch_task
+  if task then pcall(function() task:terminate() end); session.dispatch_task = nil end
 end
 
 local function source_window(session)
@@ -721,7 +682,7 @@ local function fallback_to_clipboard(session, reason, message)
 end
 
 local function finish_without_writeback(session, message)
-  hide_quick_terminal(session)
+  close_editor(session)
   if session.clipboard_before then restore_clipboard(session.clipboard_before) end
   local window = source_window(session)
   if window then
@@ -751,7 +712,7 @@ local function commit_result(session, result)
     preserve_for_recovery(session, "编辑结果校验失败，未写回")
     return
   end
-  hide_quick_terminal(session)
+  close_editor(session)
   hs.pasteboard.setContents(contents)
   if session.adopted or not source_window(session) then
     fallback_to_clipboard(session, "SOURCE_WINDOW_UNAVAILABLE", "未自动写回")
@@ -882,8 +843,10 @@ local function maybe_start_ocr(session)
   if session.ui_ready_ms and session.dispatch_plus_100_ready then start_ocr(session) end
 end
 
-local function observe_dispatch_ack(session, dispatcher_metrics)
-  if session.dispatch_ack_seen or not valid_dispatcher_metrics(dispatcher_metrics, session) then return end
+-- OCR starts shortly after the editor was launched so the first screen is
+-- never delayed by it.
+local function schedule_ocr(session)
+  if session.dispatch_ack_seen then return end
   session.dispatch_ack_seen = true
   session.ocr_delay_timer = hs.timer.doAfter(0.1, function()
     session.ocr_delay_timer = nil
@@ -944,7 +907,6 @@ local function start_monitor(session)
   if session.monitor then return end
   session.monitor = hs.timer.doEvery(0.025, function()
     if not state.sessions[session.id] then return end
-    if not session.dispatch_ack_seen then observe_dispatch_ack(session, read_json(session.paths.dispatcher_metrics)) end
     if not session.decision_seen then
       local decision = read_json(session.paths.decision)
       if decision then observe_decision(session, decision) end
@@ -972,19 +934,9 @@ local function start_monitor(session)
   end)
 end
 
-local function ensure_fifo()
-  ensure_private_dir(CACHE_DIR)
-  local mode = hs.fs.symlinkAttributes(FIFO_PATH, "mode")
-  if mode == "named pipe" then return true end
-  if mode ~= nil then return false end
-  if not command_ok("/usr/bin/mkfifo " .. shell_quote(FIFO_PATH)) then return false end
-  chmod_private(FIFO_PATH)
-  return true
-end
-
-local function launch_neovide(session)
+local function dispatch(session)
   if session.dispatch_pending then
-    show_quick_terminal(session)
+    show_editor_window(session)
     return true
   end
   session.dispatch_pending = true
@@ -1016,16 +968,9 @@ local function launch_neovide(session)
   end
   session.dispatch_ms = elapsed_ms(session.hotkey_started_at)
   hs.settings.set("editAnywhereLastLaunchRequestMs", session.dispatch_ms)
-  -- Stand in for the Quick Terminal dispatcher's ack so OCR scheduling and
-  -- the metrics stay identical across both transports.
-  atomic_write_json(session.paths.dispatcher_metrics, {
-    protocol_version = PROTOCOL_VERSION,
-    session_id = session.id,
-    dispatch_ack_at_unix_ms = now_ms(),
-    dispatcher_pid = task:pid() or 1,
-  })
+  schedule_ocr(session)
   write_metrics(session)
-  observe_quick_terminal(session)
+  observe_editor_window(session)
   session.dispatch_timeout = hs.timer.doAfter(4, function()
     session.dispatch_timeout = nil
     if not state.sessions[session.id] or session.decision_seen then return end
@@ -1039,71 +984,6 @@ local function launch_neovide(session)
       session.metric_status = "server_start_timeout"
       finish_without_writeback(session, "Neovim Server 启动超时（60 秒）")
     end)
-  end)
-  return true
-end
-
-local function dispatch(session)
-  if neovide_mode() then return launch_neovide(session) end
-  if session.dispatch_pending then
-    show_quick_terminal(session)
-    return true
-  end
-  session.dispatch_pending = true
-  if not ensure_fifo() then finish_without_writeback(session, "无法准备 Ghostty Quick Terminal"); return end
-  session.dispatch_task = hs.task.new("/bin/sh", function(exit_code, _, stderr)
-    if not state.sessions[session.id] then return end
-    session.dispatch_task = nil
-    if exit_code ~= 0 then
-      session.dispatch_pending = false
-      hs.printf("Edit Anywhere dispatch failed for %s: %s", session.id, stderr or "unknown error")
-      finish_without_writeback(session, "无法连接 Ghostty Quick Terminal")
-      return
-    end
-    stop_session_timer(session, "dispatch_write_timeout")
-    session.dispatch_ms = elapsed_ms(session.hotkey_started_at)
-    hs.settings.set("editAnywhereLastLaunchRequestMs", session.dispatch_ms)
-    write_metrics(session)
-  end, {
-    "-c", 'printf "%s\\n" "$1" > "$2"', "edit-anywhere-dispatch", session.id, FIFO_PATH,
-  })
-  if not session.dispatch_task or not session.dispatch_task:start() then
-    session.dispatch_pending = false
-    finish_without_writeback(session, "无法投递 Quick Terminal 编辑任务")
-    return
-  end
-  show_quick_terminal(session)
-  observe_quick_terminal(session)
-  session.dispatch_timeout = hs.timer.doAfter(4, function()
-    session.dispatch_timeout = nil
-    if not state.sessions[session.id] then return end
-    session.dispatch_pending = false
-    if session.decision_seen then return end
-    local acked = hs.fs.attributes(session.paths.metrics_dir .. "/dispatcher.json") ~= nil
-    if acked then
-      -- The dispatcher has the request; the server may be cold-starting
-      -- (plugin builds can take tens of seconds). Allow a full minute, the
-      -- same budget the supervisor itself uses.
-      session.dispatch_pending = true
-      session.dispatch_timeout = hs.timer.doAfter(56, function()
-        session.dispatch_timeout = nil
-        if not state.sessions[session.id] then return end
-        session.dispatch_pending = false
-        if session.decision_seen then return end
-        session.metric_status = "server_start_timeout"
-        finish_without_writeback(session, "Neovim Server 启动超时（60 秒）")
-      end)
-      return
-    end
-    -- No ack: tell a busy dispatcher (heartbeat still fresh) from a dead one.
-    local beat = hs.fs.attributes(DISPATCHER_HEARTBEAT_PATH, "modification")
-    if beat and os.time() - beat <= 3 then
-      session.metric_status = "dispatch_unacked"
-      finish_without_writeback(session, "Quick Terminal 正忙，没有接手这次请求")
-    else
-      session.metric_status = "quick_terminal_unreachable"
-      finish_without_writeback(session, "Quick Terminal 没有在运行；请关闭并重新打开 Quick Terminal")
-    end
   end)
   return true
 end
@@ -1325,7 +1205,7 @@ local function reclaim_orphaned_session(session, owner, request, decision, healt
     return false
   end
   stop_session_activity(session)
-  hide_quick_terminal(session)
+  close_editor(session)
   if not release_owner(session) then
     if synthesized then state.sessions[session.id] = nil end
     return false
@@ -1348,7 +1228,7 @@ local function reconcile_owner(owner, resume_requested)
     if resume_requested and (value == "suspended" or value == "recovery_required") then
       dispatch(live)
     elseif resume_requested then
-      show_quick_terminal(live)
+      show_editor_window(live)
       alert("已切回现有 Edit Anywhere 会话；用 ZQ 或连续两次 Ctrl-C 取消", live)
     end
     return true
@@ -1408,7 +1288,7 @@ local function begin_edit()
     return
   end
   if hs.eventtap.isSecureInputEnabled() then alert("当前是安全输入框，无法读取文本"); return end
-  if not hs.fs.attributes(DISPATCHER_PATH) then alert("缺少 Edit Anywhere Quick Terminal 脚本"); return end
+  if not hs.fs.attributes(RUNNER_PATH) then alert("缺少 Edit Anywhere 编辑器启动脚本"); return end
   local app, window = hs.application.frontmostApplication(), hs.window.focusedWindow()
   if not app or not window or not window:id() or not app:bundleID() then alert("当前窗口无法用于 Edit Anywhere"); return end
   local session = {

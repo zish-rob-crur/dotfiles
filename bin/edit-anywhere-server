@@ -655,7 +655,7 @@ ensure_command() {
 admit_command() {
   local session_id="$1"
   valid_session_id "${session_id}" || return 64
-  # Warm path: the dispatcher already prewarmed the server, so admission is one
+  # Warm path: the server is normally already running, so admission is one
   # direct idempotent RPC. Health/fingerprint checks remain on the cold path.
   local response
   response="$(rpc_session_command open "${session_id}" 2>/dev/null || true)"

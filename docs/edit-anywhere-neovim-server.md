@@ -14,7 +14,7 @@ Terminal 是可复用的 remote UI，Hammerspoon 是唯一 frontend owner 和写
     ▼
 Hammerspoon ── request/context ──> session directory
     │                                  │
-    └─ FIFO ─> Quick Terminal ─> edit-anywhere-nvim
+    └─ hs.task ─> edit-anywhere-nvim ─> neovide --server
                                       │ remote-ui
                                       ▼
                             dedicated Neovim Server
@@ -36,8 +36,7 @@ Hammerspoon ── identity check ── focus/select/paste ──> 原输入框
 
 ```text
 bin/
-  edit-anywhere-nvim            warm RPC + remote UI
-  edit-anywhere-quick-terminal  FIFO dispatcher
+  edit-anywhere-nvim            warm RPC + Neovide UI (launched by Hammerspoon)
   edit-anywhere-server          Server supervisor
   edit-anywhere-ocr             Swift/Vision OCR source
 hammerspoon/
@@ -82,7 +81,6 @@ sessions/<session-id>/
   attempts/
   metrics/
 frontend.lock/owner.json
-quick-terminal.fifo
 nvim-state/
 nvim-cache/
 tmp/
@@ -138,7 +136,7 @@ redraw 后，才发布 `ui-ready.json` 并设置窗口标题 sentinel。
 
 ### 预热
 
-Quick Terminal dispatcher 启动时执行 `edit-anywhere-server ensure`。Server 完成 host
+第一次请求时 `edit-anywhere-nvim` 通过 `edit-anywhere-server admit` 启动 Server。Server 完成 host
 插件加载、Minuet/DeepSeek 配置、Markdown 预热和 layout 归一化后报告 IDLE、
 prewarmed、adapters_ok 和 layout_ok。
 
@@ -146,8 +144,7 @@ prewarmed、adapters_ok 和 layout_ok。
 
 1. Hammerspoon 读取当前 AX 输入框和原窗口身份。
 2. 原子获取 frontend owner，创建私有 session 目录和 request/input。
-3. 立即启动异步 OCR，然后把 session id 写入 FIFO。
-4. dispatcher 记录 ack，运行稳定入口。
+3. 用 hs.task 启动 `edit-anywhere-nvim <session>`，它 attach Neovide；随后启动异步 OCR。
 5. 稳定入口优先对现有 socket 发 warm RPC；失败时只调用 supervisor `admit`。
 6. Server 创建隔离 `acwrite` buffer；Quick Terminal 以 `--remote-ui` 附着。
 7. UI ready 后窗口定位到原窗口附近并把焦点交给编辑 buffer。
@@ -223,7 +220,7 @@ edit-anywhere-server stop
 
 `stop` 拒绝活动 session；`stop --abort-active` 会先写 recovery 再终止。
 
-Hammerspoon 指标记录 hotkey、request、dispatcher ack、OCR、UI ready、窗口可见和
+Hammerspoon 指标记录 hotkey、request、editor launch、OCR、UI ready、窗口可见和
 delivery。暖态目标是 request → 可输入 UI 的 p50 ≤ 60 ms、p95 ≤ 100 ms，20 次
 session 内 Server PID 固定、RSS 增长 ≤ 30 MiB，且 OCR 不在首屏关键路径。
 

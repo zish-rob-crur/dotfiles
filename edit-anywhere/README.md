@@ -1,12 +1,11 @@
 # Edit Anywhere
 
-在 macOS 的任意可复制输入框中按 `Cmd+Shift+E`，用主机 Neovim 配置编辑文本。
-装有 Neovide 时，Hammerspoon 直接启动一个 Neovide 窗口 attach 到专用 Server；
-否则退回 Ghostty Quick Terminal 加 FIFO dispatcher 的旧链路。`ZZ` 提交并写回原窗口，`ZQ` 取消；当前窗口的
+在 macOS 的任意可复制输入框中按 `Cmd+Shift+E`，用主机 Neovim 配置编辑文本：
+Hammerspoon 启动一个 Neovide 窗口 attach 到专用 Server。`ZZ` 提交并写回原窗口，`ZQ` 取消；当前窗口的
 OCR context 会在编辑界面可输入以后异步加入补全上下文，不阻塞首屏。
 
 核心后端是一个专用、常驻、无界面的 Neovim Server。每次快捷键只创建隔离的
-session buffer，再让 Quick Terminal 附着；退出编辑后 Server 保持预热。它加载
+session buffer，再让 Neovide 附着；退出编辑后 Server 保持预热。它加载
 主机的 AstroNvim 配置，但状态、cache、cwd、buffer 和 OCR context 都保存在
 `~/.cache/edit-anywhere`，不复用或修改日常 Neovim 实例。
 
@@ -31,13 +30,8 @@ scripts/bootstrap_dotfiles.sh --mode init
 
 ## 首次启用或升级协议后
 
-按这个顺序做一次：
-
-1. 关闭并重新创建 Ghostty 的专属 Quick Terminal surface，让它运行新的 dispatcher；
-2. 在 Hammerspoon 菜单中选择 **Reload Config**。
-
-这样不会重启或最小化其他 Ghostty 窗口。此后 Quick Terminal 会在空闲时持续预热
-专用 Server。
+在 Hammerspoon 菜单中选择 **Reload Config**。Server 由第一次请求按需启动并保持预热；
+配置指纹变化时下一次请求会自动重启它。
 
 ## 使用与状态
 
@@ -126,7 +120,7 @@ python3 edit-anywhere/tests/benchmark.py e2e-start --warmups 3 --samples 20
 
 - `edit-anywhere/nvim/`：专属 Server runtime。
 - `hammerspoon/`：快捷键、窗口、OCR 和安全写回前端。
-- `bin/edit-anywhere-*`：Server、dispatcher、remote UI 和 OCR helper。
+- `bin/edit-anywhere-*`：Server、Neovide 启动器和 OCR helper。
 - `edit-anywhere/schema/`：versioned request/decision/result schema。
 - `edit-anywhere/tests/`：无 GUI 的功能与性能测试。
 - `~/.cache/edit-anywhere/sessions/`：session、recovery 和分阶段指标。
