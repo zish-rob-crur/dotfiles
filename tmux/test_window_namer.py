@@ -60,6 +60,19 @@ class CleanTests(unittest.TestCase):
         self.assertEqual(wn.clean_command("2.1.260"), "claude")
 
 
+class KeyTests(unittest.TestCase):
+    def test_key_is_a_digest_that_survives_list_panes_splitting(self):
+        w = window()
+        w.panes.append(wn.Pane("/a", "zsh", "t", True, branch="b"))
+        self.assertNotIn(wn.FIELD_SEP, w.key)  # @llm-key travels through list-panes output split on FIELD_SEP
+        self.assertRegex(w.key, r"^[0-9a-f]{16}$")
+        same = window()
+        same.panes.append(wn.Pane("/a", "zsh", "t", True, branch="b"))
+        self.assertEqual(w.key, same.key)
+        same.panes[0].title = "other"
+        self.assertNotEqual(w.key, same.key)
+
+
 class PlanTests(unittest.TestCase):
     def test_skips_windows_renamed_by_hand(self):
         w = window(auto_rename=False, llm_name="✳ x:old", name="mine")

@@ -124,8 +124,10 @@ claude）的会话，也可能是普通 shell、测试或编辑器。附带会�
 - previous 里的任务已经不存在了就不要再列。
 
 标了 name_needed 的窗口还要起一个窗口名 name：不超过 {max_name} 个字符，只用小写 ascii
-字母、数字和连字符，描述这个窗口的任务或主题而不是仓库，且不能和 taken_names 里的重复。
-其他窗口 name 留空字符串。
+字母、数字和连字符，描述这个窗口的任务或主题而不是仓库。同一个仓库往往有多个窗口在不同的
+worktree 或分支上，名字要先写能区分它们的标识：MR 或 issue 编号、分支或 worktree 名里的
+关键词（如 mr202-fwd-compat、12704-judge），而不是 review、handoff 这类泛泛的动作词。
+不能和 taken_names 里的重复。其他窗口 name 留空字符串。
 
 输出严格按 schema。
 

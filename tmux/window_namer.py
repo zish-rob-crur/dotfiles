@@ -30,6 +30,7 @@ $XDG_CACHE_HOME/tmux-window-namer/namer.log.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import os
@@ -73,9 +74,12 @@ PROMPT = """You name tmux windows so a developer can tell them apart at a glance
 
 Each window lists its panes. Reply with one name per window: at most {max_len}
 characters, only lowercase ascii letters, digits and hyphens. Describe the task
-or topic the panes share, not the repository. Names must be distinct from each
-other and from the taken names. Keep a window's current name when its context
-still fits it.
+or topic the panes share, not the repository. Several windows usually work on
+the same repository in different worktrees or branches, so lead with what tells
+this window apart: the MR or issue number, or the key words of its branch or
+worktree (mr202-fwd-compat, 12704-judge), rather than a generic activity word
+like review or handoff. Names must be distinct from each other and from the
+taken names. Keep a window's current name when its context still fits it.
 
 Taken names: {taken}
 
@@ -115,7 +119,10 @@ class Window:
 
     @property
     def key(self) -> str:
-        return FIELD_SEP.join(f"{p.path}|{p.branch}|{p.title}" for p in self.panes) + FIELD_SEP + self.icon
+        """Digest of the naming context; stored in @llm-key to skip unchanged windows.
+        (A digest, not the joined text: list-panes output is split on FIELD_SEP.)"""
+        context = FIELD_SEP.join(f"{p.path}|{p.branch}|{p.title}" for p in self.panes) + FIELD_SEP + self.icon
+        return hashlib.sha1(context.encode()).hexdigest()[:16]
 
     @property
     def repo(self) -> str:
@@ -221,6 +228,8 @@ def describe(window: Window) -> dict:
     info: dict = {"id": window.id}
     if window.topic:
         info["current_name"] = window.topic
+    if window.repo:
+        info["repo"] = window.repo
     info["panes"] = []
     for pane in window.panes:
         entry: dict[str, str | bool] = {"dir": pane.path.replace(str(Path.home()), "~"), "command": pane.command}
