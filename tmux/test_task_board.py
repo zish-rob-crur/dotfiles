@@ -44,19 +44,28 @@ class ThrottleTests(unittest.TestCase):
     def test_state_change_uses_fast_lane_even_when_unattended(self):
         w = self.window("◆")  # waiting now, was running
         cached = {"hash": "old", "at": 0, "state": "running", "tasks": []}
-        self.assertTrue(tb.wants_summary(w, cached, "new", 1000, allow_llm=False, allow_fast=True, attended=False))
-        self.assertFalse(tb.wants_summary(w, cached, "new", 1000, allow_llm=True, allow_fast=False, attended=True))
+        self.assertEqual(tb.wants_summary(w, cached, "new", 1000, allow_llm=False, allow_fast=True, attended=False), "fast")
+        self.assertEqual(tb.wants_summary(w, cached, "new", 1000, allow_llm=False, allow_fast=False, attended=False), "")
+        # A flapping badge gets one fast-lane call per window per cooldown.
+        recent = {**cached, "fast_at": 900}
+        self.assertEqual(tb.wants_summary(w, recent, "new", 1000, allow_llm=False, allow_fast=True, attended=True), "")
 
     def test_unattended_ignores_plain_content_changes(self):
         w = self.window("")
         cached = {"hash": "old", "at": 0, "state": "idle", "tasks": []}
-        self.assertFalse(tb.wants_summary(w, cached, "new", 1000, allow_llm=True, allow_fast=True, attended=False))
-        self.assertTrue(tb.wants_summary(w, cached, "new", 1000, allow_llm=True, allow_fast=True, attended=True))
+        self.assertEqual(tb.wants_summary(w, cached, "new", 1000, allow_llm=True, allow_fast=True, attended=False), "")
+        self.assertEqual(tb.wants_summary(w, cached, "new", 1000, allow_llm=True, allow_fast=True, attended=True), "full")
 
     def test_unchanged_content_never_calls(self):
         w = self.window("")
         cached = {"hash": "same", "at": 0, "state": "idle", "tasks": []}
-        self.assertFalse(tb.wants_summary(w, cached, "same", 1000, allow_llm=True, allow_fast=True, attended=True))
+        self.assertEqual(tb.wants_summary(w, cached, "same", 1000, allow_llm=True, allow_fast=True, attended=True), "")
+
+    def test_settle_uses_content_change_time_not_redraws(self):
+        w = self.window("")
+        w.activity = 1000  # tmux says "just redrawn"
+        cached = {"hash": "old", "at": 0, "state": "idle", "tasks": [], "changed_at": 800}
+        self.assertEqual(tb.wants_summary(w, cached, "new", 1000, allow_llm=True, allow_fast=True, attended=True), "full")
 
 
 class GroupTests(unittest.TestCase):
@@ -101,7 +110,10 @@ class BoardTests(unittest.TestCase):
         self.assertFalse(called)
         self.assertEqual([r["id"] for r in board["windows"]], ["@1", "@2", "@3"])
         self.assertEqual([r["group"] for r in board["windows"]], ["attention", "working", "parked"])  # tmux order, group is a label
-        self.assertEqual(cache, {})
+        # Without a codex call the cache only records content recency, no summaries.
+        self.assertEqual(sorted(cache), ["@1", "@2", "@3"])
+        self.assertTrue(all("tasks" not in e and e["changed_at"] == 1000 for e in cache.values()))
+        self.assertEqual([r["changed_at"] for r in board["windows"]], [1000, 1000, 1000])
 
     def test_llm_only_for_settled_changed_windows(self):
         settled = window(id="@1", badge="", activity=0)
@@ -132,6 +144,21 @@ class BoardTests(unittest.TestCase):
                 _, _, called = tb.build_board([settled], cache, now=4000, allow_llm=True)
                 self.assertFalse(called)
                 ask.assert_not_called()
+
+    def test_failed_call_counts_as_full_and_blocks_the_fast_lane(self):
+        settled = window(id="@1", index=1, badge="◆", activity=0)
+        settled.panes.append(tb.Pane("%1", True, "codex", "/x", "t", "codex"))
+        cache = {"@1": {"hash": "old", "at": 0, "state": "running", "tasks": []}}
+        with mock.patch.object(tb, "ask_codex", side_effect=tb.codex_batch.CodexError("model not supported")):
+            board, cache, called = tb.build_board([settled], cache, now=1000, allow_llm=False, allow_fast=True)
+        self.assertEqual(called, "full")
+        self.assertEqual(board["error"], "model not supported")
+        self.assertEqual(cache["@1"]["fast_at"], 1000)
+        self.assertEqual(cache["@1"]["tasks"], [])  # nothing overwritten
+        with mock.patch.object(tb, "ask_codex") as ask:
+            _, _, called = tb.build_board([settled], cache, now=1100, allow_llm=False, allow_fast=True)
+        ask.assert_not_called()  # same state mismatch, but the window is on cooldown
+        self.assertEqual(called, "")
 
 
 if __name__ == "__main__":

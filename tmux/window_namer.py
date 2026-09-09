@@ -240,10 +240,13 @@ def ask_codex(to_name: list[Window], taken: list[str]) -> dict[str, str]:
         taken=", ".join(sorted(taken)) or "(none)",
         windows=json.dumps([describe(w) for w in to_name], ensure_ascii=False, indent=1),
     )
-    reply = codex_batch.ask(prompt, OUTPUT_SCHEMA, state_dir=STATE_DIR, log=log,
-                            label=f"naming {[w.id for w in to_name]} taken={sorted(taken)}")
+    try:
+        reply = codex_batch.ask(prompt, OUTPUT_SCHEMA, state_dir=STATE_DIR, log=log,
+                                label=f"naming {[w.id for w in to_name]} taken={sorted(taken)}")
+    except codex_batch.CodexError:
+        return {}
     names = {}
-    for entry in (reply or {}).get("names", []):
+    for entry in reply.get("names", []):
         name = sanitize(str(entry.get("name", "")))
         if name:
             names[str(entry.get("id", ""))] = name

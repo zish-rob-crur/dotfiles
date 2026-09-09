@@ -54,6 +54,7 @@ LOG_PATH = STATE_DIR / "board.log"
 INTERVAL = float(os.environ.get("TMUX_TASK_BOARD_INTERVAL", "10"))
 LLM_MIN_GAP = 300  # normal cadence between codex calls
 FAST_GAP = 60  # cadence when a badge state changed
+FAST_WINDOW_COOLDOWN = 300  # one fast-lane call per window per this many seconds (badges can flap)
 SETTLE_SECONDS = 60  # a window must be quiet this long before it is re-summarised
 RUNNING_REFRESH = 600  # a busy window is re-summarised at most this often
 UNATTENDED_AFTER = 1800  # no keyboard/mouse for this long -> unattended mode
@@ -171,8 +172,11 @@ class Window:
         """The active pane when it is inside a repository, else the first pane that is."""
         return next((p for p in sorted(self.panes, key=lambda p: not p.active) if p.repo), None)
 
-    def settled(self, now: float) -> bool:
-        return self.state != "running" and now - self.activity >= SETTLE_SECONDS
+    def settled(self, now: float, changed_at: float | None = None) -> bool:
+        """Quiet for SETTLE_SECONDS. Content-change time is preferred over tmux's
+        window_activity, which ticks on every redraw."""
+        since = changed_at if changed_at is not None else self.activity
+        return self.state != "running" and now - since >= SETTLE_SECONDS
 
 
 def classify(badge: str) -> str:
@@ -266,7 +270,7 @@ def ask_codex(payloads: list[dict], taken: list[str] | None = None) -> dict[str,
     reply = codex_batch.ask(prompt, OUTPUT_SCHEMA, state_dir=STATE_DIR, log=log,
                             label=f"summarising {[p['id'] for p in payloads]}")
     result: dict[str, dict] = {}
-    for item in (reply or {}).get("items", []):
+    for item in reply.get("items", []):
         if not item.get("id"):
             continue
         tasks = []
@@ -315,51 +319,69 @@ def window_todo_count(name: str, todos: list[dict]) -> int:
 
 
 def wants_summary(window: Window, cached: dict | None, digest: str, now: float,
-                  allow_llm: bool, allow_fast: bool, attended: bool) -> bool:
+                  allow_llm: bool, allow_fast: bool, attended: bool) -> str:
+    """'' (no), 'fast' (badge state changed) or 'full' (regular cadence)."""
     if cached and cached.get("hash") == digest:
-        return False  # nothing on screen changed
+        return ""  # nothing on screen changed since the last summary
     if cached and "state" in cached and cached["state"] != window.state:
-        return allow_fast  # badge state changed: fast lane
-    if not attended:
-        return False  # overnight: only state changes are worth a call
-    if not allow_llm:
-        return False
-    if window.settled(now):
-        return True
-    return not cached or now - cached.get("at", 0) >= RUNNING_REFRESH
+        if allow_fast and now - cached.get("fast_at", 0) >= FAST_WINDOW_COOLDOWN:
+            return "fast"
+    if not attended or not allow_llm:
+        return ""  # overnight only state changes are worth a call; otherwise wait for the cadence
+    if window.settled(now, cached.get("changed_at") if cached else None):
+        return "full"
+    return "full" if not cached or now - cached.get("at", 0) >= RUNNING_REFRESH else ""
 
 
-def build_board(windows: list[Window], cache: dict, now: float, allow_llm: bool, next_llm_at: float = 0,
+def build_board(windows: list[Window], cache: dict, now: float, allow_llm: bool,
                 todos: list[dict] | None = None, naming: dict[str, window_namer.Window] | None = None,
-                allow_fast: bool | None = None, attended: bool = True) -> tuple[dict, dict, bool]:
-    """Return (board, updated cache, whether codex was called).
+                allow_fast: bool | None = None, attended: bool = True) -> tuple[dict, dict, str]:
+    """Return (board, updated cache, kind of codex call: '' / 'fast' / 'full').
 
     `naming` maps window ids that still need a name to window_namer windows;
-    those ride along in the same codex call and are renamed on reply."""
+    those ride along in the same codex call and are renamed on reply. A failed
+    call counts as a full one (so the regular cadence applies) and is reported
+    in board["error"]; the windows it covered skip the fast lane for a while."""
     allow_fast = allow_llm if allow_fast is None else allow_fast
     naming = naming or {}
     pending: list[dict] = []
+    reasons: dict[str, str] = {}
     contexts: dict[str, str] = {}
     for window in windows:
         digest, payload = context_of(window)
         contexts[window.id] = digest
         cached = cache.get(window.id)
+        # Content recency, independent of summaries: tmux's window_activity
+        # ticks on every redraw (resize, display wake), the capture hash only
+        # changes when something was actually printed.
+        entry = cache.setdefault(window.id, {})
+        if entry.get("seen_hash") != digest:
+            entry["seen_hash"], entry["changed_at"] = digest, int(now)
         if not any(p["tail"] for p in payload["panes"]):
             continue  # nothing on screen yet
-        needs_name = window.id in naming and allow_llm
-        if needs_name or wants_summary(window, cached, digest, now, allow_llm, allow_fast, attended):
+        reason = wants_summary(window, cached, digest, now, allow_llm, allow_fast, attended)
+        if window.id in naming and allow_llm:
+            reason = reason or "full"
+        if reason:
+            reasons[window.id] = reason
             payload = with_previous(payload, cached)
             if window.id in naming:
                 payload = {**payload, "name_needed": True, "naming": window_namer.describe(naming[window.id])}
             pending.append(payload)
 
-    called = False
+    called = error = ""
     if pending:
-        called = True
+        called = "full" if "full" in reasons.values() else "fast"
         by_id = {w.id: w for w in windows}
         taken = [w.name.split(" ")[-1].rsplit(":", 1)[-1] for w in windows if w.id not in naming]
         renames: dict[str, dict] = {}
-        for window_id, reply in ask_codex(pending, taken).items():
+        try:
+            replies = ask_codex(pending, taken)
+        except codex_batch.CodexError as exc:
+            replies, called, error = {}, "full", str(exc)
+            for payload in pending:
+                cache.setdefault(payload["id"], {})["fast_at"] = int(now)
+        for window_id, reply in replies.items():
             window = by_id.get(window_id)
             if not window:
                 continue
@@ -371,7 +393,10 @@ def build_board(windows: list[Window], cache: dict, now: float, allow_llm: bool,
                 else:
                     old = previous.get(task.get("summary"), {})
                     task["change"], task["changed_at"] = old.get("change", ""), old.get("changed_at", 0)
-            cache[window_id] = {"hash": contexts.get(window_id, ""), "at": int(now), "state": window.state, "tasks": tasks}
+            entry = {**cache.get(window_id, {}), "hash": contexts.get(window_id, ""), "at": int(now), "state": window.state, "tasks": tasks}
+            if reasons.get(window_id) == "fast":
+                entry["fast_at"] = int(now)
+            cache[window_id] = entry
             if window_id in naming and reply.get("name"):
                 renames[window_id] = window_namer.finish(naming[window_id], reply["name"])
         if renames:
@@ -396,6 +421,7 @@ def build_board(windows: list[Window], cache: dict, now: float, allow_llm: bool,
             "branch": window.git_pane.branch if window.git_pane else "",
             "todo_count": window_todo_count(window.name, todos),
             "activity_at": window.activity,
+            "changed_at": cached.get("changed_at", window.activity),
             "tasks": tasks,
             "summary_stale": bool(cached) and cached.get("hash") != contexts.get(window.id, cached.get("hash")),
             "panes": [{"tool": p.tool, "title": p.title} for p in window.assistant_panes],
@@ -404,27 +430,30 @@ def build_board(windows: list[Window], cache: dict, now: float, allow_llm: bool,
     live = {w.id for w in windows}
     for stale in [k for k in cache if k not in live]:
         cache.pop(stale, None)
-    if called:
-        next_llm_at = now + LLM_MIN_GAP
-    elif allow_llm:
-        next_llm_at = now + INTERVAL
     return {
-        "generated_at": int(now), "next_refresh_at": int(next_llm_at), "attended": attended,
+        "generated_at": int(now), "attended": attended, "error": error,
         "week": todo_notes.week_id(), "todos": todos, "windows": rows,
     }, cache, called
 
 
 class Board:
     def __init__(self) -> None:
-        self.last_llm_at = 0.0
+        self.last_llm_at = 0.0  # last regular-cadence call
+        self.last_fast_at = 0.0  # last fast-lane call; does not delay the regular cadence
+        self.failures = 0  # consecutive failed calls; each doubles the regular gap (capped)
+        self.error = ""  # reason of the last failed call, shown on the board until a call succeeds
+        self.error_since = 0
+
+    def gap(self, attended: bool) -> float:
+        return (LLM_MIN_GAP if attended else UNATTENDED_GAP) * 2 ** min(self.failures, 3)
 
     def round(self, print_only: bool = False) -> dict:
         now = time.time()
         cache = load_cache()
         attended = user_idle_seconds() < UNATTENDED_AFTER
-        gap = LLM_MIN_GAP if attended else UNATTENDED_GAP
+        gap = self.gap(attended)
         allow_llm = now - self.last_llm_at >= gap
-        allow_fast = now - self.last_llm_at >= (FAST_GAP if attended else UNATTENDED_GAP)
+        allow_fast = now - self.last_fast_at >= (FAST_GAP if attended else UNATTENDED_GAP)
         todos = [item.as_dict() for item in todo_notes.this_week_items(todo_notes.load_vaults())]
 
         # Windows window_namer has not named yet ride along in the same codex call.
@@ -433,14 +462,21 @@ class Board:
             window_namer.release(window)
         naming = {w.id: w for w in to_name}
 
-        board, cache, called = build_board(list_windows(), cache, now, allow_llm, self.last_llm_at + gap,
-                                           todos, naming, allow_fast, attended)
+        board, cache, called = build_board(list_windows(), cache, now, allow_llm, todos, naming, allow_fast, attended)
+        if called == "full":
+            self.last_llm_at = self.last_fast_at = now
+        elif called == "fast":
+            self.last_fast_at = now
         if called:
-            self.last_llm_at = now
+            self.failures = self.failures + 1 if board["error"] else 0
+            self.error = board["error"]
+            self.error_since = (self.error_since or int(now)) if board["error"] else 0
+        board["error"], board["error_since"] = self.error, self.error_since
+        board["next_refresh_at"] = int(max(self.last_llm_at + self.gap(attended), now + INTERVAL))
         write_json(CACHE_PATH, cache)
         write_json(BOARD_PATH, board)
         if print_only:
-            print(f"attended={attended} called={called}")
+            print(f"attended={attended} called={called} error={board['error']!r}")
             for row in board["windows"]:
                 age = int((now - row["activity_at"]) / 60)
                 print(f"{row['index']:>3} {row['group']:<10} {age:>4}m  {row['name']}")

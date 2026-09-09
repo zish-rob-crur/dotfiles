@@ -13,6 +13,7 @@ local HOME = assert(os.getenv("HOME"), "HOME is required")
 local STATE_DIR = HOME .. "/.cache/tmux-task-board"
 local BOARD_PATH = STATE_DIR .. "/board.json"
 local FRAME_SETTING = "taskBoardFrame"
+local GAP_SETTING = "taskBoardWeekGap"  -- px between the cards and This week; nil = pinned to the bottom
 local TODO_TOOL = HOME .. "/.local/bin/todo-notes"
 -- Default placement when no frame is remembered: right half of the first
 -- matching screen, else any non-primary screen.
@@ -34,6 +35,11 @@ local PAGE = [[
     /* repo colours, picked by a hash of the repo name */
     --p0: #e67e80; --p1: #e69875; --p2: #dbbc7f; --p3: #a7c080; --p4: #83c092; --p5: #7fbbb3; --p6: #d699b6; --p7: #a7b0a8;
   }
+  html { color-scheme: dark; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #3a444a; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #4f585e; }
   html, body { margin: 0; background: var(--bg); color: var(--text);
     font: 13px/1.5 "BoardIcons", "Maple Mono NF CN", "JetBrainsMono Nerd Font", "PingFang SC", monospace; }
   header { position: sticky; top: 0; background: var(--bg); padding: 10px 14px 6px; display: flex; align-items: baseline; gap: 12px;
@@ -42,7 +48,11 @@ local PAGE = [[
   header .counts { display: flex; gap: 10px; font-size: 12px; }
   header .counts span::before { content: "●"; margin-right: 4px; }
   header .updated { margin-left: auto; color: var(--muted); font-size: 11px; flex-shrink: 0; }
-  main { padding: 4px 10px 12px; }
+  /* The window is a flex column: cards at the top, This week pinned to the bottom. */
+  body { min-height: 100vh; display: flex; flex-direction: column; }
+  main { padding: 4px 10px 12px; flex: 1 1 auto; display: flex; flex-direction: column; }
+  main > .cards { flex: 0 0 auto; }
+  main > .week-block { margin-top: var(--week-gap, auto); }  /* auto = pinned to the bottom; the divider drag sets a fixed gap */
   h2 { font-size: 11px; font-weight: 600; letter-spacing: .08em; margin: 10px 2px 4px; text-transform: uppercase; color: var(--muted); }
   .pill { font-size: 10px; padding: 0 6px; border-radius: 8px; background: #3a444a; color: var(--text); letter-spacing: .04em; }
   .pill.attention { background: #4a4330; color: var(--attention); } .pill.error { background: #4a3336; color: var(--error); }
@@ -80,12 +90,20 @@ local PAGE = [[
   .git .branch { opacity: .75; }
   .parked .summary { color: var(--muted); font-size: 13px; } .parked .next { display: none; }
   .stale .summary, .stale .next { opacity: .6; }
+  .error-bar { margin: 0 0 12px; padding: 6px 12px; border-radius: 6px; background: #4a3336; color: var(--error); font-size: 12px; }
+  /* Recency: the longer a window has been silent, the dimmer its card. "Needs you" never dims. */
+  .card.age-1 { opacity: .8; } .card.age-2 { opacity: .6; } .card.age-3 { opacity: .4; }
+  .card.age-1:hover, .card.age-2:hover, .card.age-3:hover { opacity: 1; }
   h2.attention, .counts .attention { color: var(--attention); } h2.review, .counts .review { color: var(--review); }
   h2.working, .counts .working { color: var(--working); } h2.parked, .counts .parked { color: var(--muted); }
   .titles { color: var(--muted); }
   /* This week's todos */
-  .todos { margin: 4px 0 10px; }
-  hr { border: 0; border-top: 1px solid #3a444a; margin: 14px 0 6px; }
+  /* Same masonry columns as the cards; a heading and its items stay together. */
+  .todos { margin: 4px 0 10px; column-width: 520px; column-gap: 8px; }
+  .todo-group { break-inside: avoid; margin-bottom: 8px; }
+  .divider { height: 1px; background: #3a444a; margin: 0 0 12px; cursor: row-resize; position: relative; }
+  .divider::before { content: ""; position: absolute; inset: -8px 0; }
+  .divider:hover, .divider.dragging { background: var(--muted); }
   h2.week { cursor: pointer; } h2.week:hover { color: var(--text); }
   h2.week::after { content: "  open in Neovide"; font-weight: 400; letter-spacing: 0; text-transform: none; opacity: 0; }
   h2.week:hover::after { opacity: .7; }
@@ -93,7 +111,7 @@ local PAGE = [[
   .todo:hover { background: var(--card-hover); }
   .todo input { margin: 0; accent-color: var(--review); cursor: pointer; }
   .todo .vault { font-size: 10px; color: var(--muted); border: 1px solid #3a444a; border-radius: 6px; padding: 0 5px; }
-  .todo .text { flex: 1 1 auto; }
+  .todo .text { flex: 0 1 auto; }
   .todo.done .text { color: var(--muted); text-decoration: line-through; }
   .todo .tag { color: var(--working); font-size: 12px; }
   .todo .src, .todo .from { color: var(--muted); font-size: 11px; }
@@ -112,6 +130,7 @@ local PAGE = [[
   .todo { border-left: 3px solid transparent; }
 </style>
 <header><h1>Task Board</h1><div class="counts" id="counts"></div><div class="updated" id="updated"></div></header>
+<div class="error-bar" id="error" hidden></div>
 <main id="main"></main>
 <script>
   const GROUPS = ["attention", "review", "working", "parked"];
@@ -127,6 +146,11 @@ local PAGE = [[
     if (s < 86400) return Math.floor(s / 3600) + " h ago";
     return Math.floor(s / 86400) + " d ago";
   };
+  const ageClass = (epoch, group) => {
+    if (group === "attention" || !epoch) return "";
+    const h = (Date.now() / 1000 - epoch) / 3600;
+    return h < 0.5 ? "" : h < 3 ? "age-1" : h < 24 ? "age-2" : "age-3";
+  };
   const stripIcon = name => { const m = /^(\S+)\s+(.*)$/.exec(name || ""); return m && !/\w/.test(m[1]) ? m[2] : (name || ""); };
   const shorten = (s, n) => (s && s.length > n) ? s.slice(0, n - 1) + "…" : (s || "");
   const repoClass = repo => { let h = 0; for (const c of repo || "") h = (h * 31 + c.charCodeAt(0)) >>> 0; return "repo-" + (h % 7); };
@@ -137,13 +161,13 @@ local PAGE = [[
     const titles = (!tasks.length && w.panes && w.panes.length)
       ? `<div class="titles">${esc(w.panes.map(p => p.title).filter(Boolean).join("  ·  "))}</div>` : "";
     const idx = w.index;
-    const cls = [w.group, w.state === "error" ? "error" : "", w.summary_stale ? "stale" : "", repoClass(w.repo)].join(" ");
+    const cls = [w.group, w.state === "error" ? "error" : "", w.summary_stale ? "stale" : "", repoClass(w.repo), ageClass(w.changed_at || w.activity_at, w.group)].join(" ");
     return `<div class="card ${cls}" data-id="${esc(w.id)}" data-session="${esc(w.session)}">
       <div class="meta"><span class="idx">${esc(idx)}</span><span class="icon ${toolClass(w.icon)}">${esc(w.icon)}</span><span class="name">${esc(stripIcon(w.name))}</span>
         <span class="pill ${w.state === "error" ? "error" : w.group}">${LABEL[w.group] || w.group}</span>
         ${w.todo_count ? `<span class="todos-n">☐ ${w.todo_count}</span>` : ""}
         ${w.repo ? `<span class="git">${esc(w.repo)}${w.branch ? ` <span class="branch">@ ${esc(w.branch)}</span>` : ""}</span>` : ""}
-        <span class="age">${age(w.activity_at)}</span></div>
+        <span class="age">${age(w.changed_at || w.activity_at)}</span></div>
       ${w.group === "parked" ? (tasks[0] || titles) : (tasks.join("") || titles)}
     </div>`;
   }
@@ -183,15 +207,17 @@ local PAGE = [[
       if (t.done) return;
       const k = t.vault + "\u0000" + (t.section || "");
       if (k !== key) {
+        if (key !== null) html += "</div>";
         key = k;
-        html += t.section
+        html += `<div class="todo-group">` + (t.section
           ? `<h3 class="section ${sectionClass(t.section)}">${esc(t.section)}<span class="vault">${esc(t.vault)}</span></h3>`
-          : `<h3 class="section"><span class="vault">${esc(t.vault)}</span></h3>`;
+          : `<h3 class="section"><span class="vault">${esc(t.vault)}</span></h3>`);
       }
       html += todoRow(t, i);
     });
-    return `<hr><h2 class="week" id="week">This week · ${esc(board.week || "")}<span class="n">· ${open.length} open · ${done.length} done</span></h2>
-      <div class="todos">${html}</div>`;
+    if (key !== null) html += "</div>";
+    return `<div class="week-block"><div class="divider" title="Drag to adjust the gap · double-click to reset"></div><h2 class="week" id="week">This week · ${esc(board.week || "")}<span class="n">· ${open.length} open · ${done.length} done</span></h2>
+      <div class="todos">${html}</div></div>`;
   }
   function render() {
     const wins = board.windows || [];
@@ -202,8 +228,8 @@ local PAGE = [[
     renderHeaderTime();
     // tmux order, one block per session; no regrouping so cards never move.
     const sessions = [...new Set(wins.map(w => w.session))];
-    document.getElementById("main").innerHTML = sessions.map(s =>
-      (multi ? `<h2>${esc(s)}</h2>` : "") + `<div class="group">` + wins.filter(w => w.session === s).map(w => card(w, multi)).join("") + `</div>`).join("") + renderTodos();
+    document.getElementById("main").innerHTML = `<div class="cards">` + sessions.map(s =>
+      (multi ? `<h2>${esc(s)}</h2>` : "") + `<div class="group">` + wins.filter(w => w.session === s).map(w => card(w, multi)).join("") + `</div>`).join("") + `</div>` + renderTodos();
   }
   // "⟳ 10:22 · next in 48s": the countdown ticks every second, the rest only on data changes.
   function renderHeaderTime() {
@@ -214,9 +240,39 @@ local PAGE = [[
       text += " · summaries " + (left > 60 ? "in " + Math.ceil(left / 60) + " min" : left > 0 ? "in " + left + "s" : "checking");
     }
     document.getElementById("updated").textContent = text;
+    const err = document.getElementById("error");
+    err.hidden = !board.error;
+    if (board.error) err.textContent = "Summaries paused: codex calls failing since " + hhmm(board.error_since || board.generated_at) + " — " + board.error;
   }
   setInterval(renderHeaderTime, 1000);
-  window.update = b => { board = b; render(); };
+  // Gap between the cards and This week: drag the divider to fix it, double-click to pin
+  // This week back to the bottom. Hammerspoon stores it and sends it along with the board.
+  let gap = null;
+  const applyGap = () => {
+    if (gap === null) document.documentElement.style.removeProperty("--week-gap");
+    else document.documentElement.style.setProperty("--week-gap", gap + "px");
+  };
+  const saveGap = () => { if (window.webkit && webkit.messageHandlers.board) webkit.messageHandlers.board.postMessage({ gap: gap === null ? false : gap }); };
+  window.update = b => { board = b; gap = typeof b.week_gap === "number" ? b.week_gap : null; applyGap(); render(); };
+  document.addEventListener("pointerdown", e => {
+    const bar = e.target.closest(".divider");
+    if (!bar) return;
+    e.preventDefault();
+    const block = bar.closest(".week-block"), cards = document.querySelector(".cards");
+    const startGap = block.getBoundingClientRect().top - cards.getBoundingClientRect().bottom, startY = e.clientY;
+    bar.classList.add("dragging");
+    const move = ev => { gap = Math.max(0, Math.round(startGap + ev.clientY - startY)); applyGap(); };
+    const up = () => {
+      bar.classList.remove("dragging");
+      document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up);
+      saveGap();
+    };
+    document.addEventListener("pointermove", move); document.addEventListener("pointerup", up);
+  });
+  document.addEventListener("dblclick", e => {
+    if (!e.target.closest(".divider")) return;
+    gap = null; applyGap(); saveGap();
+  });
   if (window.webkit && webkit.messageHandlers.board) webkit.messageHandlers.board.postMessage({ ready: true });
   document.addEventListener("click", e => {
     if (e.target.closest("#week")) {
@@ -291,6 +347,7 @@ local function edit_todos()
   if state.todo_task:start() then place_todo_window() end
 end
 M.edit = edit_todos -- also used by raycast/todo-week.sh
+function M.view() return state.view end
 
 local function toggle_todo(todo)
   local line = tostring(math.tointeger(tonumber(todo.line)) or todo.line)
@@ -344,6 +401,7 @@ end
 -- function any more: reload the HTML once and push again.
 local function push_board(retry)
   if not state.view or not state.board then return end
+  state.board.week_gap = hs.settings.get(GAP_SETTING)
   local js = "typeof window.update === 'function' && (window.update(" .. hs.json.encode(state.board) .. "), true)"
   state.view:evaluateJavaScript(js, function(result, err)
     if result == true or retry then return end
@@ -367,6 +425,7 @@ local function build_view()
     if body.ready then push_board(true)
     elseif body.edit then edit_todos()
     elseif body.todo then toggle_todo(body.todo)
+    elseif body.gap ~= nil then hs.settings.set(GAP_SETTING, body.gap or nil)  -- false clears it
     elseif body.id then jump_to(body) end
   end)
   state.view = hs.webview.new(frame, { developerExtrasEnabled = false }, controller)
