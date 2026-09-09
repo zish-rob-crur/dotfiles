@@ -1,3 +1,8 @@
+# Give Codex skill loading enough file descriptors without lowering a higher limit.
+if [[ "$(ulimit -Sn)" != unlimited ]] && (( $(ulimit -Sn) < 10240 )); then
+    ulimit -Sn 10240 2>/dev/null
+fi
+
 if [[ "$TERM_PROGRAM" == "vscode" ]]; then
     unset RPROMPT
     typeset -g POWERLEVEL9K_DISABLE_RPROMPT=true
