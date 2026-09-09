@@ -370,13 +370,15 @@ local function build_view()
     elseif body.id then jump_to(body) end
   end)
   state.view = hs.webview.new(frame, { developerExtrasEnabled = false }, controller)
-  -- No `utility` mask: a utility panel floats above every other window on
-  -- macOS regardless of the level set here, and the board should not.
+  -- A plain window (no `utility`, no `nonactivating`): panels float above
+  -- other apps' windows and stay out of Cmd-Tab and Mission Control, which is
+  -- exactly what the board must not do. Clicking it activates Hammerspoon,
+  -- whose Dock icon is shown for that reason.
   local masks = hs.webview.windowMasks
-  state.view:windowStyle(masks.titled | masks.closable | masks.resizable | masks.nonactivating)
+  state.view:windowStyle(masks.titled | masks.closable | masks.resizable)
   state.view:windowTitle("Task Board")
   state.view:level(hs.drawing.windowLevels.normal)
-  state.view:behaviorAsLabels({ "canJoinAllSpaces", "stationary" })
+  state.view:behaviorAsLabels({ "canJoinAllSpaces" })
   state.view:allowTextEntry(false)
   state.view:deleteOnClose(false)
   state.view:html(PAGE)  -- the page posts {ready=true} once loaded; that triggers the first push
@@ -399,6 +401,7 @@ function M.toggle()
 end
 
 function M.start()
+  hs.dockicon.show()  -- lets the board be reached with Cmd-Tab like any app window
   build_view()
   state.board = read_board()  -- pushed once the page reports ready
   state.watcher = hs.pathwatcher.new(STATE_DIR, function(paths)
