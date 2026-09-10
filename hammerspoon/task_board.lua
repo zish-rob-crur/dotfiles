@@ -21,6 +21,7 @@ local SCREEN_NAMES = { "T270LG" }
 local TOGGLE_HOTKEY = { { "cmd", "shift" }, "b" }
 local EDIT_HOTKEY = { { "cmd", "shift" }, "d" }  -- open this week's todo files in Neovide
 
+local neovide = require("neovide_window")
 local state = { view = nil, watcher = nil, board = nil, hotkey = nil, frame_timer = nil }
 
 local PAGE = [[
@@ -111,7 +112,11 @@ local PAGE = [[
   .todo:hover { background: var(--card-hover); }
   .todo input { margin: 0; accent-color: var(--review); cursor: pointer; }
   .todo .vault { font-size: 10px; color: var(--muted); border: 1px solid #3a444a; border-radius: 6px; padding: 0 5px; }
-  .todo .text { flex: 0 1 auto; }
+  .todo .text { flex: 1 1 auto; min-width: 0; }
+  .todo .tag, .todo .src, .todo .due, .todo .from { flex: none; white-space: nowrap; }
+  .todo a { color: var(--working); text-decoration: none; border-bottom: 1px dotted var(--working); }
+  .todo a:hover { color: var(--text); border-bottom-style: solid; }
+  .todo a::after { content: "↗"; font-size: 10px; margin-left: 2px; }
   .todo.done .text { color: var(--muted); text-decoration: line-through; }
   .todo .tag { color: var(--working); font-size: 12px; }
   .todo .src, .todo .from { color: var(--muted); font-size: 11px; }
@@ -138,6 +143,10 @@ local PAGE = [[
   const STATE = { error: "error", waiting: "waiting", done: "done", running: "running", idle: "idle" };
   let board = { windows: [] };
   const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  // Escaped text with markdown links and bare urls turned into anchors (opened by Hammerspoon).
+  const linkify = s => esc(s)
+    .replace(/\[([^\x5d]+)\x5d\((https?:\/\/[^\s)]+)\)/g, (_, label, url) => `<a href="${url}">${label}</a>`)  // \x5d is a closing bracket: two of them in a row would end the Lua long string
+    .replace(/(^|[^"=>])(https?:\/\/[^\s<)]+)/g, (_, before, url) => `${before}<a href="${url}">${url.replace(/^https?:\/\//, "").slice(0, 40)}</a>`);
   const age = epoch => {
     if (!epoch) return "";
     const s = Math.floor(Date.now() / 1000 - epoch);
@@ -190,7 +199,7 @@ local PAGE = [[
   function todoRow(t, i) {
     const cls = ["todo", t.done ? "done" : "", t.priority ? "priority" : "", (!t.done && t.due && t.due < today()) ? "overdue" : "", sectionClass(t.section)].join(" ");
     return `<label class="${cls}" data-i="${i}"><input type="checkbox" ${t.done ? "checked" : ""}>
-      <span class="vault">${esc(t.vault)}</span><span class="text">${esc(t.text)}</span>
+      <span class="vault">${esc(t.vault)}</span><span class="text">${linkify(t.text)}</span>
       ${t.tags.map(x => `<span class="tag">@${esc(x)}</span>`).join(" ")}
       ${t.sources.map(x => `<span class="src">#${esc(x)}</span>`).join(" ")}
       ${t.due ? `<span class="due">📅 ${esc(t.due.slice(5))}</span>` : ""}
@@ -275,6 +284,12 @@ local PAGE = [[
   });
   if (window.webkit && webkit.messageHandlers.board) webkit.messageHandlers.board.postMessage({ ready: true });
   document.addEventListener("click", e => {
+    const link = e.target.closest("a[href]");
+    if (link) {
+      e.preventDefault();  // no in-page navigation, and no checkbox toggle from the enclosing label
+      if (window.webkit && webkit.messageHandlers.board) webkit.messageHandlers.board.postMessage({ url: link.href });
+      return;
+    }
     if (e.target.closest("#week")) {
       if (window.webkit && webkit.messageHandlers.board) webkit.messageHandlers.board.postMessage({ edit: true });
       return;
@@ -305,46 +320,15 @@ local function read_board()
   return nil
 end
 
--- Open this week's todo files in Neovide, or focus the Neovide we already
--- opened. Hammerspoon launches Neovide itself so it knows the pid: that is how
--- the window is found (Neovide's title is not distinctive) and placed.
-local function todo_window()
-  local pid = state.todo_task and state.todo_task:isRunning() and state.todo_task:pid()
-  if not pid then return nil end
-  for _, window in ipairs(hs.window.allWindows()) do
-    local app = window:application()
-    if app and app:pid() == pid then return window end
-  end
-  return nil
-end
-
-local function place_todo_window(attempt)
-  local window = todo_window()
-  if not window then
-    if (attempt or 0) < 80 then hs.timer.doAfter(0.05, function() place_todo_window((attempt or 0) + 1) end) end
-    return
-  end
-  local screen = hs.mouse.getCurrentScreen() or hs.screen.mainScreen()
-  local f = screen:frame()
-  local w, h = math.min(1100, math.floor(f.w * 0.55)), math.min(760, math.floor(f.h * 0.6))
-  window:setFrame({ x = f.x + (f.w - w) / 2, y = f.y + (f.h - h) / 2, w = w, h = h }, 0)
-  window:focus()
-end
-
+-- Open this week's todo files in Neovide, or focus the one already open.
 local function edit_todos()
-  local existing = todo_window()
-  if existing then existing:focus(); return end
+  if neovide.find("todos") then neovide.open("todos", {}); return end
   local files = {}
   for line in (hs.execute(TODO_TOOL .. " ensure", true) or ""):gmatch("[^\n]+") do files[#files + 1] = line end
   if #files == 0 then hs.printf("task board: no todo files (is ~/.config/task-board/config.toml set?)"); return end
-  local neovide = "/opt/homebrew/bin/neovide"
-  if hs.fs.attributes(neovide, "mode") ~= "file" then
+  if not neovide.open("todos", files, { "-O" }) then
     hs.task.new(TODO_TOOL, nil, { "edit" }):start()  -- terminal fallback inside todo-notes
-    return
   end
-  state.todo_task = hs.task.new(neovide, nil, { "--", "-O", table.unpack(files) })
-  state.todo_task:setEnvironment({ HOME = HOME, PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin" })
-  if state.todo_task:start() then place_todo_window() end
 end
 M.edit = edit_todos -- also used by raycast/todo-week.sh
 function M.view() return state.view end
@@ -426,6 +410,7 @@ local function build_view()
     elseif body.edit then edit_todos()
     elseif body.todo then toggle_todo(body.todo)
     elseif body.gap ~= nil then hs.settings.set(GAP_SETTING, body.gap or nil)  -- false clears it
+    elseif body.url then hs.urlevent.openURL(body.url)
     elseif body.id then jump_to(body) end
   end)
   state.view = hs.webview.new(frame, { developerExtrasEnabled = false }, controller)

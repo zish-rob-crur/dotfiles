@@ -120,7 +120,7 @@ def parse_item(vault: str, file: Path, number: int, line: str) -> Item | None:
     sources = re.findall(r"(?<!\S)#(\S+)", body)
     due_match = re.search(r"📅 (\d{4}-\d{2}-\d{2})", body)
     from_match = FROM_RE.search(body)
-    text = body
+    text = re.sub(r"<!--.*?-->", "", body)  # hidden ids such as <!-- feishu:om_… -->; the links stay for the board to render
     for pattern in (r"(?<!\S)[@#]\S+", r"📅 \d{4}-\d{2}-\d{2}", r"✅ \d{4}-\d{2}-\d{2}", r"\(from \d{4}-W\d{2}\)"):
         text = re.sub(pattern, "", text)
     priority = bool(re.search(r"⏫|🔺", body)) or text.strip().startswith("!")

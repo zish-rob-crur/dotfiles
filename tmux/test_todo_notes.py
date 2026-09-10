@@ -30,6 +30,11 @@ class ParseTests(unittest.TestCase):
         self.assertTrue(done.done)
         self.assertEqual(done.text, "重跑导出")
         self.assertIsNone(tn.parse_item("p", Path("w.md"), 2, "# heading"))
+
+    def test_hidden_comments_are_dropped_but_links_stay(self):
+        item = tn.parse_item("w", Path("w.md"), 4, "- [ ] 排查丢失 [飞书原消息](https://x.feishu.cn/a?b=1&c=2) <!-- feishu:om_1 --> #飞书")
+        self.assertEqual(item.text, "排查丢失 [飞书原消息](https://x.feishu.cn/a?b=1&c=2)")
+        self.assertEqual(item.sources, ["飞书"])
         self.assertIsNone(tn.parse_item("p", Path("w.md"), 3, "- plain bullet"))
 
 
