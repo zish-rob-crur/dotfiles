@@ -16,6 +16,9 @@ RUN_MUTED_COLOR="#8C959F"
 WAIT_COLOR="#BF8700"
 DONE_COLOR="#1A7F37"
 ERROR_COLOR="#CF222E"
+# A finished task blinks its check mark for this long after completion, then
+# holds it steady until the pane is focused.
+DONE_BLINK_SECONDS="${CODEX_TMUX_BADGE_DONE_BLINK_SECONDS:-60}"
 TRACE_FILE="${CODEX_TMUX_BADGE_TRACE_FILE:-}"
 FORCE_REFRESH=0
 ACK_CHANGED=0
@@ -279,20 +282,27 @@ acknowledge_pane() {
 }
 
 load_unread_panes() {
-  local pane_id
+  local pane_id fresh
   unread_panes="|"
+  fresh_done_panes="|"
   resolve_server_state_dir || return 0
 
-  while IFS= read -r pane_id; do
+  while IFS=$'\t' read -r pane_id fresh; do
     [[ "${pane_id}" =~ ^%[0-9]+$ ]] || continue
     unread_panes=$(append_unique_token "${unread_panes}" "${pane_id}")
-  done < <(SERVER_STATE_DIR="${SERVER_STATE_DIR}" python3 - <<'PY'
+    if [[ "${fresh}" == "fresh" ]]; then
+      fresh_done_panes=$(append_unique_token "${fresh_done_panes}" "${pane_id}")
+    fi
+  done < <(SERVER_STATE_DIR="${SERVER_STATE_DIR}" DONE_BLINK_SECONDS="${DONE_BLINK_SECONDS}" python3 - <<'PY'
 import json
 import os
+import time
 from pathlib import Path
 
 
 state_dir = Path(os.environ["SERVER_STATE_DIR"])
+blink_ns = int(float(os.environ.get("DONE_BLINK_SECONDS") or 0) * 1_000_000_000)
+now_ns = time.time_ns()
 for path in state_dir.glob("pane-*.json"):
     try:
         os.chmod(str(path), 0o600)
@@ -303,7 +313,12 @@ for path in state_dir.glob("pane-*.json"):
     if isinstance(payload, dict) and payload.get("unread") is True:
         pane_num = path.name.removeprefix("pane-").removesuffix(".json")
         if pane_num.isdigit():
-            print(f"%{pane_num}")
+            try:
+                completed_ns = int(payload.get("completed_at_ns", 0))
+            except (TypeError, ValueError):
+                completed_ns = 0
+            fresh = completed_ns > 0 and now_ns - completed_ns < blink_ns
+            print(f"%{pane_num}\t{'fresh' if fresh else 'old'}")
 PY
   )
 }
@@ -331,6 +346,9 @@ record_captured_pane() {
     state_path=$(state_path_for_pane "${pane_id}")
     if [[ -f "${state_path}" ]] && has_token "${unread_panes}" "${pane_id}"; then
       done_windows=$(append_unique_token "${done_windows}" "${window_id}")
+      if has_token "${fresh_done_panes}" "${pane_id}"; then
+        fresh_done_windows=$(append_unique_token "${fresh_done_windows}" "${window_id}")
+      fi
     fi
   fi
 }
@@ -392,8 +410,18 @@ render_waiting() {
   printf ' #[push-default]#[fg=%s,bold]◆#[pop-default]' "${WAIT_COLOR}"
 }
 
+# render_done [blink]: with "1" the check mark alternates between green and
+# muted on the same 2-second phase as the running dot.
 render_done() {
-  printf ' #[push-default]#[fg=%s,bold]󰄬#[pop-default]' "${DONE_COLOR}"
+  local color phase
+  color="${DONE_COLOR}"
+  if [[ "${1:-}" == "1" ]]; then
+    phase=$(( ($(date +%s) / 2) % 2 ))
+    if [[ ${phase} -eq 1 ]]; then
+      color="${RUN_MUTED_COLOR}"
+    fi
+  fi
+  printf ' #[push-default]#[fg=%s,bold]󰄬#[pop-default]' "${color}"
 }
 
 render_errored() {
@@ -473,7 +501,7 @@ list_panes_for_refresh() {
 }
 
 main() {
-  local windows old_badges errored_windows waiting_windows running_windows done_windows
+  local windows old_badges errored_windows waiting_windows running_windows done_windows fresh_done_windows
   local seen_windows seen_panes
   local window_id old_badge pane_id pane_cmd pane_title badge tool running_title pane_content
 
@@ -492,6 +520,7 @@ main() {
   waiting_windows="|"
   running_windows="|"
   done_windows="|"
+  fresh_done_windows="|"
 
   while IFS=$'\t' read -r window_id old_badge; do
     [[ -n "${window_id}" ]] || continue
@@ -537,6 +566,8 @@ main() {
       badge=$(render_waiting)
     elif has_token "${running_windows}" "${window_id}"; then
       badge=$(render_running)
+    elif has_token "${fresh_done_windows}" "${window_id}"; then
+      badge=$(render_done 1)
     elif has_token "${done_windows}" "${window_id}"; then
       badge=$(render_done)
     fi

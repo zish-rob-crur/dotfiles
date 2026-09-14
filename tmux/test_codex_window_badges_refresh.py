@@ -676,6 +676,32 @@ os.close(lock_fd)
             self.assertEqual(sum(line.startswith("window\t") for line in trace), 1)
             self.assertEqual(sum(line.startswith("capture\t") for line in trace), 1)
 
+    def test_fresh_completion_blinks_then_holds_steady(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fake = FakeTmuxEnvironment(Path(temporary))
+            fake.state_dir.mkdir(parents=True, exist_ok=True)
+            state_path = fake.state_dir / "pane-1.json"
+
+            def badge_after(completed_ns: int, blink_seconds: str = "60") -> str:
+                state_path.write_text(
+                    json.dumps({"thread_id": "t", "unread": True, "completed_at_ns": completed_ns}),
+                    encoding="utf-8",
+                )
+                fake.log.write_text("", encoding="utf-8")
+                fake.env["CODEX_TMUX_BADGE_DONE_BLINK_SECONDS"] = blink_seconds
+                fake.run("--force")
+                return fake.badge.read_text(encoding="utf-8")
+
+            now_ns = time.time_ns()
+            fresh = badge_after(now_ns)
+            self.assertIn("󰄬", fresh)
+            self.assertTrue("#1A7F37" in fresh or "#8C959F" in fresh, fresh)  # either blink phase
+            old = badge_after(now_ns - 600 * 1_000_000_000)
+            self.assertIn("󰄬", old)
+            self.assertIn("#1A7F37", old)
+            self.assertNotIn("#8C959F", old)
+            self.assertEqual(badge_after(now_ns, blink_seconds="0"), old)  # blinking can be switched off
+
     def test_done_badge_requires_explicit_unread_true(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             fake = FakeTmuxEnvironment(Path(temporary))
