@@ -4,7 +4,9 @@
 # The list is the session as a tree (goto_entries.py): windows with their
 # assistant state, and under them the panes worth telling apart, each with what
 # the task board says it is doing. Typing filters; non-matching lines stay
-# dimmed so a matched pane is still seen under its window.
+# dimmed so a matched pane is still seen under its window. The cursor follows
+# the first match (and returns to the current window when the query is cleared);
+# up/down move between matches only.
 #
 # Enter on a window or pane already shown by another Ghostty client of the same
 # session group focuses that Ghostty window instead of switching this client.
@@ -49,7 +51,8 @@ out="$(fzf-tmux "${popup[@]}" -- --ansi --raw --no-sort --layout=reverse --no-mu
   --delimiter=$'\t' --with-nth=3 --expect=ctrl-o,ctrl-g \
   --header="Enter: go  ·  ctrl-o: focus only  ·  ctrl-g: this client  ·  ctrl-/: preview" \
   --preview="$preview" --preview-window='right:50%:hidden' --bind 'ctrl-/:toggle-preview' \
-  --bind "load:pos(${start:-1})" <<<"$entries")" || exit 0
+  --bind "result:transform:[[ -n {q} ]] && echo best || echo 'pos(${start:-1})'" \
+  --bind 'up:up-match,down:down-match,ctrl-k:up-match,ctrl-j:down-match' <<<"$entries")" || exit 0
 
 key="${out%%$'\n'*}"
 selected="${out#*$'\n'}"
