@@ -378,6 +378,12 @@ local function remember_frame()
   if not state.view then return end
   local f = state.view:frame()
   if f then hs.settings.set(FRAME_SETTING, { x = f.x, y = f.y, w = f.w, h = f.h }) end
+  -- Safety net: an ordinary window must never float above others (show() and
+  -- bringToFront() have both been seen to raise the level).
+  if state.view:level() ~= hs.drawing.windowLevels.normal then
+    hs.printf("task board: window level was %s, back to normal", tostring(state.view:level()))
+    state.view:level(hs.drawing.windowLevels.normal)
+  end
 end
 
 -- Push board.json into the page. If the WebKit content process died (blank
@@ -439,7 +445,9 @@ function M.toggle()
     state.view:hide()
   else
     state.view:show()
-    state.view:bringToFront()
+    state.view:level(hs.drawing.windowLevels.normal)  -- show() can re-raise the level
+    local shown = state.view:hswindow()
+    if shown then shown:focus() end  -- in front now, but as an ordinary window (bringToFront() would float it)
     push_board()
   end
 end
