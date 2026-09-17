@@ -24,6 +24,17 @@ class PaneTextTests(unittest.TestCase):
         self.assertEqual(ge.pane_text("codex", "codex", "Review MR 202", "/x", ""), "Review MR 202")
 
 
+class BranchTests(unittest.TestCase):
+    def test_branch_is_hidden_when_the_worktree_directory_spells_it(self):
+        self.assertEqual(ge.branch_label("fix/agentic/v2-prompt-forward-compat", "mono.fix-agentic-v2-prompt-forward-compat"), "")
+        self.assertEqual(ge.branch_label("codex/calle-ui-main-ci", "mono.codex-calle-ui-main-ci"), "")
+
+    def test_branch_is_shown_otherwise(self):
+        self.assertEqual(ge.branch_label("main", "dotfiles"), "main")
+        self.assertEqual(ge.branch_label("feat/agentic/goal-specs-main", "mono.feat-agentic-goal-specs"), "feat/agentic/goal-specs-main")
+        self.assertEqual(ge.branch_label("", "dotfiles"), "")
+
+
 class GlyphTests(unittest.TestCase):
     def test_badge_glyphs(self):
         self.assertIn("◆", ge.glyph(" #[fg=#BF8700,bold]◆#[pop-default]"))

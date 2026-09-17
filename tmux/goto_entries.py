@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Entries for fzf-goto.sh (prefix+g / prefix+w): the current session as a tree.
 
-One line per window (index, assistant state, name, directory) followed by its
+One line per window (index, assistant state, name, directory, git branch)
+followed by its
 panes worth telling apart: assistants, editors and anything with a title. Plain
 idle shells are reached through their window. A window with one such pane
 carries that pane's text on its own line. A pane's text is the task board's summary for it when there
@@ -42,12 +43,25 @@ def glyph(badge: str) -> str:
     return next((f"{shown}{RESET}" for raw, shown in STATE_GLYPHS if raw in badge), " ")
 
 
-def pane_tasks() -> dict[str, str]:
-    """pane id -> "summary → next" from the task board."""
+def load_board() -> dict:
+    """The task board's last snapshot (refreshed every 10 s by its daemon). Reading
+    branches from it keeps the popup fast: no git process per directory."""
     try:
-        board = json.loads(BOARD.read_text())
+        return json.loads(BOARD.read_text())
     except (OSError, json.JSONDecodeError):
         return {}
+
+
+def branch_label(branch: str, directory: str) -> str:
+    """Branch to show next to a directory, or "" when the worktree directory
+    already spells it ("repo.fix-agentic-x" on "fix/agentic/x")."""
+    if not branch or re.sub(r"[^\w]+", "-", branch).strip("-") in re.sub(r"[^\w]+", "-", directory):
+        return ""
+    return branch
+
+
+def pane_tasks(board: dict) -> dict[str, str]:
+    """pane id -> "summary → next" from the task board."""
     tasks = {}
     for window in board.get("windows", []):
         for task in window.get("tasks", []):
@@ -84,7 +98,9 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv[1:])
     group = args.group or args.session
     visible = visible_clients(args.client, args.session, group)
-    tasks = pane_tasks()
+    board = load_board()
+    tasks = pane_tasks(board)
+    branches = {w.get("id"): w.get("branch", "") for w in board.get("windows", [])}
 
     panes: dict[str, list[list[str]]] = {}
     for row in rows(["list-panes", "-s", "-t", args.session, "-F", FS.join(
@@ -108,7 +124,10 @@ def main(argv: list[str]) -> int:
             ["#{window_id}", "#{window_index}", "#{window_name}", "#{@codex-badge}", "#{pane_id}", "#{pane_current_path}"])], 6):
         mark = "*" if window_id == args.window_id else " "
         where = f"  {CYAN}⧉ {visible[window_id][2] or visible[window_id][1]}{RESET}" if window_id in visible else ""
-        head = f"{index:>2}{mark} {glyph(badge)} {name}  {DIM}{os.path.basename(path)}{RESET}{where}"
+        directory = os.path.basename(path)
+        branch = branch_label(branches.get(window_id, ""), directory)
+        branch = f" {DIM}⎇ {branch}{RESET}" if branch else ""
+        head = f"{index:>2}{mark} {glyph(badge)} {name}  {DIM}{directory}{RESET}{branch}{where}"
         members = []
         for pid, pindex, cmd, title, stitle, ppath in panes.get(window_id, []):
             cmd = clean_command(cmd)
