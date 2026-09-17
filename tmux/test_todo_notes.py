@@ -14,10 +14,10 @@ import todo_notes as tn  # noqa: E402
 
 class ParseTests(unittest.TestCase):
     def test_item_fields(self):
-        item = tn.parse_item("work", Path("w.md"), 3, "- [ ] ⏫ 确认 MR 213 的合并策略 @calle:goal-fix #群:agentic 📅 2026-09-09 (from 2026-W36)")
+        item = tn.parse_item("work", Path("w.md"), 3, "- [ ] ⏫ 确认 MR 213 的合并策略 @proj:goal-fix #群:agentic 📅 2026-09-09 (from 2026-W36)")
         assert item
         self.assertEqual(item.text, "确认 MR 213 的合并策略")
-        self.assertEqual(item.tags, ["calle:goal-fix"])
+        self.assertEqual(item.tags, ["proj:goal-fix"])
         self.assertEqual(item.sources, ["群:agentic"])
         self.assertEqual(item.due, "2026-09-09")
         self.assertTrue(item.priority)
@@ -25,7 +25,7 @@ class ParseTests(unittest.TestCase):
         self.assertFalse(item.done)
 
     def test_done_and_non_items(self):
-        done = tn.parse_item("p", Path("w.md"), 1, "- [x] 重跑导出 @airudder ✅ 2026-09-08")
+        done = tn.parse_item("p", Path("w.md"), 1, "- [x] 重跑导出 @notes ✅ 2026-09-08")
         assert done
         self.assertTrue(done.done)
         self.assertEqual(done.text, "重跑导出")
@@ -42,9 +42,9 @@ class SectionTests(unittest.TestCase):
     def test_items_take_the_nearest_heading(self):
         with tempfile.TemporaryDirectory() as tmp:
             f = Path(tmp) / "w.md"
-            f.write_text("# 2026-W37\n\n- [ ] top\n\n## CALLE\n- [ ] one\n### sub\n- [ ] two\n", encoding="utf-8")
+            f.write_text("# 2026-W37\n\n- [ ] top\n\n## 项目\n- [ ] one\n### sub\n- [ ] two\n", encoding="utf-8")
             items = tn.parse_file("work", f)
-            self.assertEqual([(i.text, i.section) for i in items], [("top", ""), ("one", "CALLE"), ("two", "sub")])
+            self.assertEqual([(i.text, i.section) for i in items], [("top", ""), ("one", "项目"), ("two", "sub")])
 
 
 FS = "https://applink.feishu.cn/client/chat/open?openChatId=oc_1&position=34"
@@ -56,16 +56,16 @@ class LinkTests(unittest.TestCase):
         lines = [
             "# 2026-W38",
             "",
-            "## CALLE",
-            f"- [ ] 排查丢失 @calle #飞书 [飞书原消息]({FS}) <!-- feishu:om_x100b651ebdb6 --> · [复现 case]({DOC}) (from 2026-W37)",
+            "## 项目",
+            f"- [ ] 排查丢失 @proj #飞书 [飞书原消息]({FS}) <!-- feishu:om_1ebdb6 --> · [复现 case]({DOC}) (from 2026-W37)",
             "- [ ] 没有链接的事项",
             "[注意]: 这不是链接定义",
             "",
         ]
         tidied = tn.tidy_lines(lines)
-        self.assertEqual(tidied[3], "- [ ] 排查丢失 @calle #飞书 [飞书原消息][fs-1ebdb6] · [复现 case][l-" + tidied[3].split("[l-")[1])
+        self.assertEqual(tidied[3], "- [ ] 排查丢失 @proj #飞书 [飞书原消息][fs-1ebdb6] · [复现 case][l-" + tidied[3].split("[l-")[1])
         self.assertIn("[注意]: 这不是链接定义", tidied)
-        self.assertEqual(tidied[-2], f'[fs-1ebdb6]: {FS} "feishu:om_x100b651ebdb6"')
+        self.assertEqual(tidied[-2], f'[fs-1ebdb6]: {FS} "feishu:om_1ebdb6"')
         self.assertTrue(tidied[-1].startswith("[l-") and tidied[-1].endswith(DOC))
         self.assertEqual(tn.tidy_lines(tidied), tidied)  # idempotent
 
@@ -104,7 +104,7 @@ class LinkTests(unittest.TestCase):
             previous = vault.week_file("2026-W37")
             previous.parent.mkdir(parents=True)
             previous.write_text("\n".join([
-                "# 2026-W37", "", "## CALLE", "- [ ] 未完成 [飞书原消息][fs-aaaaaa]", "- [x] 已完成 [飞书原消息][fs-bbbbbb] ✅ 2026-09-10",
+                "# 2026-W37", "", "## 项目", "- [ ] 未完成 [飞书原消息][fs-aaaaaa]", "- [x] 已完成 [飞书原消息][fs-bbbbbb] ✅ 2026-09-10",
                 "", f'[fs-aaaaaa]: {FS} "feishu:om_aaaaaa"', f"[fs-bbbbbb]: {DOC}",
             ]) + "\n", encoding="utf-8")
             text = tn.ensure_week(vault, "2026-W38").read_text(encoding="utf-8")
@@ -154,14 +154,14 @@ class WeekTests(unittest.TestCase):
     def test_rollover_carries_unfinished_items_once(self):
         last = self.vault.week_file("2026-W36")
         last.parent.mkdir(parents=True)
-        last.write_text("# 2026-W36\n\n- [ ] 未完成 @calle\n- [x] 已完成 ✅ 2026-09-05\n\n## CALLE\n- [ ] 更早的 (from 2026-W35)\n", encoding="utf-8")
+        last.write_text("# 2026-W36\n\n- [ ] 未完成 @proj\n- [x] 已完成 ✅ 2026-09-05\n\n## 项目\n- [ ] 更早的 (from 2026-W35)\n", encoding="utf-8")
         target = tn.ensure_week(self.vault, "2026-W37")
         text = target.read_text(encoding="utf-8")
         self.assertIn("# 2026-W37  09-07 ~ 09-13", text)
-        self.assertIn("- [ ] 未完成 @calle (from 2026-W36)", text)
-        self.assertIn("## CALLE\n- [ ] 更早的 (from 2026-W35)", text)
+        self.assertIn("- [ ] 未完成 @proj (from 2026-W36)", text)
+        self.assertIn("## 项目\n- [ ] 更早的 (from 2026-W35)", text)
         self.assertNotIn("已完成", text)
-        self.assertEqual([i.section for i in tn.parse_file("work", target)], ["", "CALLE"])
+        self.assertEqual([i.section for i in tn.parse_file("work", target)], ["", "项目"])
         # Existing file is left alone.
         target.write_text("custom", encoding="utf-8")
         self.assertEqual(tn.ensure_week(self.vault, "2026-W37").read_text(), "custom")

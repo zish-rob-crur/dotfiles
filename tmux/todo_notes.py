@@ -16,9 +16,9 @@ Vaults come from ~/.config/task-board/config.toml (paths differ per machine):
 One Markdown file per ISO week, e.g. Inbox/Todo/2026-W37.md, in Obsidian Tasks
 style so the vault's own plugins understand it:
 
-    - [ ] 确认 MR 213 的合并策略 @calle #群:agentic-dev 📅 2026-09-09
-    - [ ] ⏫ 跟进客户反馈的限流问题 @calle:goal-fix #会议
-    - [x] 给 airudder 重跑导出 @airudder ✅ 2026-09-08
+    - [ ] 确认 MR 213 的合并策略 @proj #群:agentic-dev 📅 2026-09-09
+    - [ ] ⏫ 跟进客户反馈的限流问题 @proj:goal-fix #会议
+    - [x] 重跑导出 @notes ✅ 2026-09-08
 
 `@tag` links the item to a task-board window (full name or its project prefix),
 `#tag` records where it came from. A `## Heading` above items groups them (the

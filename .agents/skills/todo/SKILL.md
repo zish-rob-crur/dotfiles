@@ -27,7 +27,7 @@ decisions, follow-ups or "things to review" without being asked.
 3. If the user gave no `@tag` and the shell is inside tmux, attach the current
    window so the board can link the item to its card:
    `tmux display -p '#W'`, then drop a leading icon glyph and the space after
-   it (names look like `✳ calle:goal-fix`; use `calle:goal-fix`).
+   it (names look like `✳ proj:goal-fix`; use `proj:goal-fix`).
    Skip the tag when the item is clearly unrelated to the current window.
 4. Run `todo-notes add <vault> "<text>"` and reply with the line as written and
    the file path it went to. For `list`, run `todo-notes list` and show the output.

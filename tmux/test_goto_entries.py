@@ -27,7 +27,7 @@ class PaneTextTests(unittest.TestCase):
 class BranchTests(unittest.TestCase):
     def test_branch_is_hidden_when_the_worktree_directory_spells_it(self):
         self.assertEqual(ge.branch_label("fix/agentic/v2-prompt-forward-compat", "mono.fix-agentic-v2-prompt-forward-compat"), "")
-        self.assertEqual(ge.branch_label("codex/calle-ui-main-ci", "mono.codex-calle-ui-main-ci"), "")
+        self.assertEqual(ge.branch_label("codex/web-ui-main-ci", "mono.codex-web-ui-main-ci"), "")
 
     def test_branch_is_shown_otherwise(self):
         self.assertEqual(ge.branch_label("main", "dotfiles"), "main")
