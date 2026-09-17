@@ -25,16 +25,30 @@ style so the vault's own plugins understand it:
 board shows the groups); unfinished items roll into the next week's file under
 the same heading, marked "(from W36)".
 
+Links are written reference-style so an item stays one short line; the URLs sit
+in a block at the end of the file, and a Feishu message id is kept as the link
+title, which is what deduplication matches:
+
+    - [ ] 排查丢失问题 @window #来源 [飞书原消息][fs-9c1e70]
+
+    [fs-9c1e70]: https://applink.feishu.cn/client/chat/open?... "feishu:om_<message id>"
+
+`add` and `tidy` convert inline links (`[text](url) <!-- feishu:<id> -->`) into
+that form, so writers may keep producing inline links.
+
     todo_notes.py ensure               create this week's files, carrying unfinished items over
+    todo_notes.py nvim-args            nvim arguments opening one tab per vault (used by Hammerspoon)
+    todo_notes.py tidy [vault]         move inline links of this week's file(s) into the reference block
     todo_notes.py list                 print this week's items
     todo_notes.py add <vault> <text>   append an item to this week's file
     todo_notes.py toggle <vault> <n>   flip the checkbox on line n of this week's file
-    todo_notes.py edit [vault]         open this week's file(s) in Neovide, side by side
+    todo_notes.py edit [vault]         open this week's file(s) in Neovide, one tab per vault
 """
 
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import os
 import re
 import shutil
@@ -49,6 +63,11 @@ ITEM_RE = re.compile(r"^(\s*- \[)( |x|X)(\] )(.*)$")
 DONE_STAMP_RE = re.compile(r"\s*✅ \d{4}-\d{2}-\d{2}")
 FROM_RE = re.compile(r"\(from (\d{4}-W\d{2})\)")
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.*?)\s*$")
+DEF_RE = re.compile(r'^\[([^\]]+)\]:\s*([a-z][\w+.-]*://\S+)(?:\s+"([^"]*)")?\s*$')  # [label]: url "title"; urls only, so "[注意]: 明天" stays text
+INLINE_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^\s)]+)\)")
+FEISHU_ID_RE = re.compile(r"\s*<!--\s*feishu:([\w-]+)\s*-->")
+FEISHU_MESSAGE_URL = "applink.feishu.cn/client/"
+REF_LINK_RE = re.compile(r"\[([^\]]+)\]\[([^\]]+)\]")
 
 
 @dataclass
@@ -110,11 +129,98 @@ def previous_week(week: str) -> str:
     return week_id(monday - dt.timedelta(days=1))
 
 
-def parse_item(vault: str, file: Path, number: int, line: str) -> Item | None:
+@dataclass
+class LinkDef:
+    url: str
+    title: str = ""
+
+    def line(self, label: str) -> str:
+        return f'[{label}]: {self.url}' + (f' "{self.title}"' if self.title else "")
+
+
+def split_link_defs(lines: list[str]) -> tuple[list[str], dict[str, LinkDef]]:
+    """(lines without link definitions, label -> definition)."""
+    body, defs = [], {}
+    for line in lines:
+        match = DEF_RE.match(line)
+        if match and not ITEM_RE.match(line):
+            defs[match.group(1)] = LinkDef(match.group(2), match.group(3) or "")
+        else:
+            body.append(line)
+    return body, defs
+
+
+def _label_for(url: str, feishu_id: str, defs: dict[str, LinkDef]) -> str:
+    for label, known in defs.items():
+        if known.url == url:
+            return label
+    base = f"fs-{feishu_id}" if feishu_id else "l-" + hashlib.sha1(url.encode()).hexdigest()
+    prefix = base[:3] if feishu_id else base[:2]
+    tail = base[len(prefix):]
+    for size in range(6, len(tail) + 1):  # short labels hide little text when rendered; grow on collision
+        label = prefix + (tail[-size:] if feishu_id else tail[:size])
+        if label not in defs:
+            return label
+    return base
+
+
+def tidy_lines(lines: list[str]) -> list[str]:
+    """Inline links -> reference links, with one definition block at the end holding
+    the definitions still in use, in order of first use. Idempotent."""
+    body, defs = split_link_defs(lines)
+
+    def convert(line: str) -> str:
+        links = list(INLINE_LINK_RE.finditer(line))
+        if not links:
+            return line
+        # A hidden id belongs to the Feishu message link before it, which is not
+        # always the link right before it ("[消息](…) · [文档](…) <!-- feishu:id -->").
+        ids: dict[int, str] = {}
+        consumed = []
+        for comment in FEISHU_ID_RE.finditer(line):
+            before = [n for n, link in enumerate(links) if link.end() <= comment.start() and n not in ids]
+            messages = [n for n in before if FEISHU_MESSAGE_URL in links[n].group(2)]
+            target = (messages or before or [None])[-1]
+            if target is not None:
+                ids[target] = comment.group(1)
+                consumed.append(comment.span())
+        out, pos = [], 0
+        spans = sorted([(link.start(), link.end(), n) for n, link in enumerate(links)] + [(a, b, None) for a, b in consumed])
+        for start, end, n in spans:
+            out.append(line[pos:start])
+            if n is not None:
+                text, url, feishu_id = links[n].group(1), links[n].group(2), ids.get(n, "")
+                label = _label_for(url, feishu_id, defs)
+                known = defs.setdefault(label, LinkDef(url))
+                if feishu_id and not known.title:
+                    known.title = f"feishu:{feishu_id}"
+                out.append(f"[{text}][{label}]")
+            pos = end
+        return "".join(out) + line[pos:]
+
+    body = [convert(line) for line in body]
+    used: list[str] = []
+    for line in body:
+        for label in REF_LINK_RE.findall(line):
+            if label[1] in defs and label[1] not in used:
+                used.append(label[1])
+    while body and not body[-1].strip():
+        body.pop()
+    if not used:
+        return body
+    return body + [""] + [defs[label].line(label) for label in used]
+
+
+def resolve_links(text: str, defs: dict[str, LinkDef]) -> str:
+    """[text][label] -> [text](url) for renderers that only know inline links."""
+    return REF_LINK_RE.sub(lambda m: f"[{m.group(1)}]({defs[m.group(2)].url})" if m.group(2) in defs else m.group(0), text)
+
+
+def parse_item(vault: str, file: Path, number: int, line: str, defs: dict[str, LinkDef] | None = None) -> Item | None:
     match = ITEM_RE.match(line)
     if not match:
         return None
-    body = match.group(4)
+    body = resolve_links(match.group(4), defs or {})
     done = match.group(2).lower() == "x"
     tags = re.findall(r"(?<!\S)@(\S+)", body)
     sources = re.findall(r"(?<!\S)#(\S+)", body)
@@ -139,12 +245,13 @@ def parse_file(vault: str, file: Path) -> list[Item]:
         return []
     items = []
     section = ""
+    _, defs = split_link_defs(lines)
     for number, line in enumerate(lines, start=1):
         heading = HEADING_RE.match(line)
         if heading:
             section = "" if len(heading.group(1)) == 1 else heading.group(2)  # the H1 is the week title
             continue
-        item = parse_item(vault, file, number, line)
+        item = parse_item(vault, file, number, line, defs)
         if item:
             item.section = section
             items.append(item)
@@ -161,6 +268,10 @@ def ensure_week(vault: Vault, week: str | None = None) -> Path:
     carried: list[str] = []
     section = ""
     previous = vault.week_file(previous_week(week))
+    try:
+        _, defs = split_link_defs(previous.read_text(encoding="utf-8").splitlines())
+    except OSError:
+        defs = {}
     for item in parse_file(vault.name, previous):
         if item.done:
             continue
@@ -172,8 +283,19 @@ def ensure_week(vault: Vault, week: str | None = None) -> Path:
         raw = FROM_RE.sub("", item.raw).rstrip()
         carried.append(f"{raw} (from {origin})")
     target.parent.mkdir(parents=True, exist_ok=True)
-    header = f"# {week}  {monday:%m-%d} ~ {sunday:%m-%d}\n\n"
-    target.write_text(header + "\n".join(carried) + ("\n" if carried else ""), encoding="utf-8")
+    header = [f"# {week}  {monday:%m-%d} ~ {sunday:%m-%d}", ""]
+    carried += [definition.line(label) for label, definition in defs.items()]  # tidy keeps only those still used
+    lines = tidy_lines(header + "\n".join(carried).split("\n")) if carried else header
+    target.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return target
+
+
+def tidy_week(vault: Vault) -> Path:
+    target = ensure_week(vault)
+    lines = target.read_text(encoding="utf-8").splitlines()
+    tidied = tidy_lines(lines)
+    if tidied != lines:
+        target.write_text("\n".join(tidied) + "\n", encoding="utf-8")
     return target
 
 
@@ -189,8 +311,11 @@ def add_item(vault: Vault, text: str) -> Path:
     line = text.strip()
     if not line.startswith("- ["):
         line = f"- [ ] {line}"
-    with target.open("a", encoding="utf-8") as handle:
-        handle.write(line + "\n")
+    body, defs = split_link_defs(target.read_text(encoding="utf-8").splitlines())
+    while body and not body[-1].strip():
+        body.pop()
+    lines = tidy_lines(body + [line] + [definition.line(label) for label, definition in defs.items()])
+    target.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return target
 
 
@@ -216,19 +341,40 @@ def toggle_item(vault: Vault, line_number: int, today: dt.date | None = None) ->
     return not done
 
 
-def edit_week(vaults: list[Vault]) -> None:
-    """Open this week's files in Neovide (vertical splits), or bring the existing Neovide to the front.
-    Falls back to nvim in the terminal when Neovide is not installed."""
+def _vim_escape(path: str) -> str:
+    """fnameescape() for a path used inside an Ex command."""
+    return re.sub(r'([ \\%#|"])', r"\\\1", path)
+
+
+def nvim_args(vaults: list[Vault]) -> list[str]:
+    """nvim arguments opening this week's file of each vault in its own tab page,
+    with the tab's working directory at the vault root. Tabs keep the vaults
+    apart in one editor: AstroNvim scopes the buffer list per tab, and a Codex
+    side panel opened in a tab stays in that tab. The first file is a plain
+    argument and the rest use :tabnew after startup (with `nvim -p`, AstroNvim
+    would list every buffer under the first tab)."""
     files = [str(ensure_week(vault)) for vault in vaults]
+    args = [files[0], "-c", f"tcd {_vim_escape(str(vaults[0].path))}"]
+    for vault, file in zip(vaults[1:], files[1:]):
+        args += ["-c", f"tabnew {_vim_escape(file)} | tcd {_vim_escape(str(vault.path))}"]
+    if len(vaults) > 1:
+        args += ["-c", "tabfirst"]
+    return args
+
+
+def edit_week(vaults: list[Vault]) -> None:
+    """Open this week's files in Neovide (one tab per vault), or bring the existing Neovide to the front.
+    Falls back to nvim in the terminal when Neovide is not installed."""
+    args = nvim_args(vaults)
     neovide = shutil.which("neovide")
     if not neovide:
-        os.execvp("nvim", ["nvim", "-O", *files])
+        os.execvp("nvim", ["nvim", *args])
     running = subprocess.run(["pgrep", "-f", f"neovide.*{week_id()}\\.md"], capture_output=True, text=True)
     if running.returncode == 0:
         subprocess.run(["osascript", "-e", 'tell application "Neovide" to activate'], capture_output=True)
         return
     # --size is in physical pixels; 2200x1500 is about 1100x750 points on a Retina display.
-    subprocess.Popen([neovide, "--size", "2200x1500", "--", "-O", *files], start_new_session=True,
+    subprocess.Popen([neovide, "--size", "2200x1500", "--", *args], start_new_session=True,
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -248,6 +394,11 @@ def main(argv: list[str]) -> int:
     if command == "ensure":
         for vault in vaults:
             print(ensure_week(vault))
+    elif command == "tidy":
+        for vault in [find_vault(vaults, argv[2])] if len(argv) > 2 else vaults:
+            print(tidy_week(vault))
+    elif command == "nvim-args":  # one argument per line, for the Hammerspoon launcher
+        print("\n".join(nvim_args(vaults)))
     elif command == "list":
         for item in this_week_items(vaults):
             mark = "x" if item.done else " "

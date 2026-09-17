@@ -47,6 +47,97 @@ class SectionTests(unittest.TestCase):
             self.assertEqual([(i.text, i.section) for i in items], [("top", ""), ("one", "CALLE"), ("two", "sub")])
 
 
+FS = "https://applink.feishu.cn/client/chat/open?openChatId=oc_1&position=34"
+DOC = "https://x.feishu.cn/wiki/Abc"
+
+
+class LinkTests(unittest.TestCase):
+    def test_inline_links_move_to_a_reference_block(self):
+        lines = [
+            "# 2026-W38",
+            "",
+            "## CALLE",
+            f"- [ ] 排查丢失 @calle #飞书 [飞书原消息]({FS}) <!-- feishu:om_x100b651ebdb6 --> · [复现 case]({DOC}) (from 2026-W37)",
+            "- [ ] 没有链接的事项",
+            "[注意]: 这不是链接定义",
+            "",
+        ]
+        tidied = tn.tidy_lines(lines)
+        self.assertEqual(tidied[3], "- [ ] 排查丢失 @calle #飞书 [飞书原消息][fs-1ebdb6] · [复现 case][l-" + tidied[3].split("[l-")[1])
+        self.assertIn("[注意]: 这不是链接定义", tidied)
+        self.assertEqual(tidied[-2], f'[fs-1ebdb6]: {FS} "feishu:om_x100b651ebdb6"')
+        self.assertTrue(tidied[-1].startswith("[l-") and tidied[-1].endswith(DOC))
+        self.assertEqual(tn.tidy_lines(tidied), tidied)  # idempotent
+
+    def test_hidden_id_goes_to_the_feishu_message_link_before_it(self):
+        line = f"- [ ] x [飞书原消息]({FS}) · [复现 case]({DOC}) <!-- feishu:om_1111111 --> [飞书原消息]({FS}2) <!-- feishu:om_2222222 -->"
+        tidied = tn.tidy_lines([line])
+        self.assertTrue(tidied[0].startswith("- [ ] x [飞书原消息][fs-111111] · [复现 case][l-"), tidied[0])
+        self.assertTrue(tidied[0].endswith("[飞书原消息][fs-222222]"), tidied[0])
+        self.assertIn(f'[fs-111111]: {FS} "feishu:om_1111111"', tidied)
+        self.assertIn(f'[fs-222222]: {FS}2 "feishu:om_2222222"', tidied)
+
+    def test_same_url_reuses_its_label_and_unused_definitions_are_dropped(self):
+        lines = [f"- [ ] a [飞书原消息]({FS}) <!-- feishu:om_1abcdef -->", f"- [ ] b [飞书原消息]({FS})",
+                 "", f"[old]: {DOC}"]
+        tidied = tn.tidy_lines(lines)
+        self.assertEqual(tidied[:2], ["- [ ] a [飞书原消息][fs-abcdef]", "- [ ] b [飞书原消息][fs-abcdef]"])
+        self.assertEqual(tidied[2:], ["", f'[fs-abcdef]: {FS} "feishu:om_1abcdef"'])
+
+    def test_label_grows_on_collision(self):
+        lines = [f"- [ ] a [m](https://a.example) <!-- feishu:om_1aaaaaa -->",
+                 f"- [ ] b [m](https://b.example) <!-- feishu:om_2aaaaaa -->"]
+        tidied = tn.tidy_lines(lines)
+        self.assertIn("[m][fs-aaaaaa]", tidied[0])
+        self.assertIn("[m][fs-2aaaaaa]", tidied[1])
+
+    def test_parsed_text_resolves_references_for_the_board(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            file = Path(tmp) / "w.md"
+            file.write_text(f"- [ ] 排查 [飞书原消息][fs-1] #飞书\n\n[fs-1]: {FS} \"feishu:om_1\"\n", encoding="utf-8")
+            (item,) = tn.parse_file("work", file)
+            self.assertEqual(item.text, f"排查 [飞书原消息]({FS})")
+
+    def test_rollover_carries_the_definitions_of_unfinished_items(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = tn.Vault("work", Path(tmp))
+            previous = vault.week_file("2026-W37")
+            previous.parent.mkdir(parents=True)
+            previous.write_text("\n".join([
+                "# 2026-W37", "", "## CALLE", "- [ ] 未完成 [飞书原消息][fs-aaaaaa]", "- [x] 已完成 [飞书原消息][fs-bbbbbb] ✅ 2026-09-10",
+                "", f'[fs-aaaaaa]: {FS} "feishu:om_aaaaaa"', f"[fs-bbbbbb]: {DOC}",
+            ]) + "\n", encoding="utf-8")
+            text = tn.ensure_week(vault, "2026-W38").read_text(encoding="utf-8")
+            self.assertIn("- [ ] 未完成 [飞书原消息][fs-aaaaaa] (from 2026-W37)", text)
+            self.assertIn(f'[fs-aaaaaa]: {FS} "feishu:om_aaaaaa"', text)
+            self.assertNotIn(DOC, text)
+
+    def test_add_keeps_the_block_at_the_end(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = tn.Vault("work", Path(tmp))
+            tn.add_item(vault, f"第一件 [飞书原消息]({FS}) <!-- feishu:om_aaaaaa -->")
+            target = tn.add_item(vault, f"第二件 [文档]({DOC})")
+            lines = target.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(lines[-5:-3], ["- [ ] 第一件 [飞书原消息][fs-aaaaaa]", lines[-4]])
+            self.assertTrue(lines[-4].startswith("- [ ] 第二件 [文档][l-"))
+            self.assertEqual(lines[-3], "")
+            self.assertTrue(lines[-2].startswith("[fs-aaaaaa]: ") and lines[-1].startswith("[l-"))
+
+
+class NvimArgsTests(unittest.TestCase):
+    def test_one_tab_per_vault_with_tab_local_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work = tn.Vault(name="work", path=Path(tmp) / "work vault", todo_folder="Inbox/Todo")
+            personal = tn.Vault(name="personal", path=Path(tmp) / "me", todo_folder="Inbox/Todo")
+            args = tn.nvim_args([work, personal])
+            week = tn.week_id()
+            self.assertEqual(args[0], str(work.path / "Inbox/Todo" / f"{week}.md"))
+            self.assertEqual(args[1:3], ["-c", f"tcd {tmp}/work\\ vault"])  # spaces escaped for Ex
+            self.assertEqual(args[3:5], ["-c", f"tabnew {personal.path}/Inbox/Todo/{week}.md | tcd {personal.path}"])
+            self.assertEqual(args[5:], ["-c", "tabfirst"])
+            self.assertEqual(tn.nvim_args([personal])[1:], ["-c", f"tcd {personal.path}"])
+
+
 class WeekTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

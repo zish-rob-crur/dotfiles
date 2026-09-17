@@ -320,13 +320,14 @@ local function read_board()
   return nil
 end
 
--- Open this week's todo files in Neovide, or focus the one already open.
+-- Open this week's todo files in Neovide, one tab per vault (todo-notes builds
+-- the nvim arguments), or focus the window already open.
 local function edit_todos()
   if neovide.find("todos") then neovide.open("todos", {}); return end
-  local files = {}
-  for line in (hs.execute(TODO_TOOL .. " ensure", true) or ""):gmatch("[^\n]+") do files[#files + 1] = line end
-  if #files == 0 then hs.printf("task board: no todo files (is ~/.config/task-board/config.toml set?)"); return end
-  if not neovide.open("todos", files, { "-O" }) then
+  local args = {}
+  for line in (hs.execute(TODO_TOOL .. " nvim-args", true) or ""):gmatch("[^\n]+") do args[#args + 1] = line end
+  if #args == 0 then hs.printf("task board: no todo files (is ~/.config/task-board/config.toml set?)"); return end
+  if not neovide.open("todos", args) then  -- the first argument is a file: Neovide starts in its directory
     hs.task.new(TODO_TOOL, nil, { "edit" }):start()  -- terminal fallback inside todo-notes
   end
 end
