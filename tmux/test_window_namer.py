@@ -21,8 +21,8 @@ class SanitizeTests(unittest.TestCase):
         self.assertEqual(wn.sanitize("Bug Handoff!"), "bug-handoff")
 
     def test_truncates_at_word_boundary(self):
-        self.assertEqual(wn.sanitize("goal-review-fix-for-agents"), "goal-review-fix")
-        self.assertEqual(wn.sanitize("abcdefghijklmnopqrstu"), "abcdefghijklmnop")
+        self.assertEqual(wn.sanitize("goal-review-fix-for-agents-and-more"), "goal-review-fix-for-agents")
+        self.assertEqual(wn.sanitize("a" * 40), "a" * wn.MAX_NAME_LENGTH)
 
 
 class PrefixTests(unittest.TestCase):
@@ -71,6 +71,27 @@ class KeyTests(unittest.TestCase):
         self.assertEqual(w.key, same.key)
         same.panes[0].title = "other"
         self.assertNotEqual(w.key, same.key)
+
+
+class OwnershipTests(unittest.TestCase):
+    def window_named(self, name, icon="✳", repo="my-cool-repo"):
+        w = window(auto_rename=False, llm_name="", name=name, icon=icon)
+        w.panes.append(wn.Pane("/x", "zsh", "", True, branch="main", repo=repo))
+        return w
+
+    def test_restored_session_keeps_a_name_this_script_would_compose(self):
+        # tmux-resurrect restores the name but not @llm-name / @llm-key.
+        self.assertTrue(self.window_named("✳ mcr:goal-fix").owned)
+        self.assertTrue(self.window_named("mcr:goal-fix", icon="").owned)  # a prefix alone is evidence
+        self.assertTrue(self.window_named("✳ goal-fix").owned)  # so is an icon alone
+        # The icon and the prefix in the name are the ones from when it was set;
+        # the pane mix and the worktree may have moved on since.
+        self.assertTrue(self.window_named("\ue00b other:goal-fix").owned)
+
+    def test_a_hand_typed_name_stays_manual(self):
+        self.assertFalse(self.window_named("✳ mcr:Goal Fix").owned)  # spaces and capitals
+        self.assertFalse(self.window_named("mine", icon="").owned)  # neither icon nor prefix
+        self.assertFalse(self.window_named("todo list", icon="").owned)
 
 
 class PlanTests(unittest.TestCase):

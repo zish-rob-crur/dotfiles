@@ -48,7 +48,7 @@ STATE_DIR = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))) 
 PROPOSAL_PATH = STATE_DIR / "proposal.json"
 LOG_PATH = STATE_DIR / "namer.log"
 CONFIG_PATH = Path(os.environ.get("TASK_BOARD_CONFIG", str(Path.home() / ".config/task-board/config.toml")))
-MAX_NAME_LENGTH = 16  # only the current window shows its name on the rail, so this can be generous
+MAX_NAME_LENGTH = 28  # the rail shows only the current window's name; the goto popup and the board show them all
 FIELD_SEP = "\x1f"
 
 log = logging.getLogger("window-namer")
@@ -77,9 +77,11 @@ characters, only lowercase ascii letters, digits and hyphens. Describe the task
 or topic the panes share, not the repository. Several windows usually work on
 the same repository in different worktrees or branches, so lead with what tells
 this window apart: the MR or issue number, or the key words of its branch or
-worktree (mr202-fwd-compat, 12704-judge), rather than a generic activity word
-like review or handoff. Names must be distinct from each other and from the
-taken names. Keep a window's current name when its context still fits it.
+worktree, then add a word or two of what is being done there
+(mr202-fwd-compat-squash, 12704-outcome-judge). Windows are picked from a
+searchable list, so words worth typing later earn their place; do not pad a
+name to the limit. Names must be distinct from each other and from the taken
+names. Keep a window's current name when its context still fits it.
 
 Taken names: {taken}
 
@@ -110,8 +112,34 @@ class Window:
 
     @property
     def owned(self) -> bool:
-        """True when the current name was set by this script."""
-        return not self.auto_rename and bool(self.llm_name) and self.name == self.llm_name
+        """True when the current name was set by this script. @llm-name is the
+        record, but tmux-resurrect restores neither window option, so a restored
+        session also counts a name this script would compose (icon, project
+        prefix, lowercase topic) as its own; anything else is a manual rename."""
+        if self.auto_rename:
+            return False
+        if self.llm_name and self.name == self.llm_name:
+            return True
+        return bool(self.generated_topic)
+
+    @property
+    def generated_topic(self) -> str:
+        """The topic part of a name shaped like one of ours, else "".
+
+        The shape is "<icon> <prefix>:<topic>", where both the icon and the
+        prefix are optional but at least one must be there: a bare lowercase
+        word is what tmux itself names a window. Neither is compared with the
+        window's current icon or repository, which drift as panes and worktrees
+        change; the shape alone is what a manual rename does not have."""
+        head, separator, rest = self.name.partition(" ")
+        icon = bool(separator) and not re.search(r"\w", head)
+        body = rest if icon else self.name
+        prefixed = re.match(r"[a-z0-9]{1,5}:(.*)", body)
+        if prefixed:
+            body = prefixed.group(1)
+        elif not icon:
+            return ""
+        return body if re.fullmatch(rf"[a-z0-9][a-z0-9-]{{0,{MAX_NAME_LENGTH - 1}}}", body) else ""
 
     @property
     def signal(self) -> bool:
@@ -134,7 +162,7 @@ class Window:
         """The model-chosen part of the current name, without icon and prefix."""
         if not self.owned:
             return ""
-        return self.name.split(" ")[-1].rsplit(":", 1)[-1]  # "<icon> <prefix>:<topic>"
+        return self.generated_topic or self.name.split(" ")[-1].rsplit(":", 1)[-1]  # "<icon> <prefix>:<topic>"
 
 
 def prefix_overrides() -> dict[str, str]:
