@@ -16,6 +16,7 @@ brew "lazygit"
 brew "mise"
 brew "neovim"
 brew "nvm"
+brew "pngpaste"  # clipboard image -> file, for pasting images into Codex over ssh
 brew "pnpm"
 brew "ripgrep"
 brew "rust"

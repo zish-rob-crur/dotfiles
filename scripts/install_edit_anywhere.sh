@@ -168,6 +168,7 @@ link_path "${DOTFILES_REPO}/hammerspoon/edit_anywhere.lua" "${HOME}/.hammerspoon
 link_path "${DOTFILES_REPO}/hammerspoon/task_board.lua" "${HOME}/.hammerspoon/task_board.lua"
 link_path "${DOTFILES_REPO}/hammerspoon/neovide_window.lua" "${HOME}/.hammerspoon/neovide_window.lua"
 link_path "${DOTFILES_REPO}/hammerspoon/scratchpad.lua" "${HOME}/.hammerspoon/scratchpad.lua"
+link_path "${DOTFILES_REPO}/hammerspoon/remote_image_paste.lua" "${HOME}/.hammerspoon/remote_image_paste.lua"
 link_path "${DOTFILES_REPO}/tmux/todo_notes.py" "${HOME}/.local/bin/todo-notes"
 link_path "${DOTFILES_REPO}/.agents/skills/todo" "${HOME}/.agents/skills/todo"
 

@@ -4,6 +4,7 @@ local edit_anywhere = require("edit_anywhere")
 edit_anywhere.start()
 require("task_board").start()
 require("scratchpad").start()
+require("remote_image_paste").start()
 
 hs.autoLaunch(true)
 
