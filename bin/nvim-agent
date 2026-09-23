@@ -1,5 +1,14 @@
 #!/bin/sh
 
+# Both agents mark the environment of every process they start. That survives
+# a session the login shell never touched (Claude Code's app and its daemon
+# start one), where walking the parents is the only other clue.
+detect_agent_from_environment() {
+    [ -z "${CLAUDECODE:-}${CLAUDE_CODE_ENTRYPOINT:-}${CLAUDE_CODE_SESSION_ID:-}" ] || { printf 'claude\n'; return 0; }
+    [ -z "${CODEX_SANDBOX:-}${CODEX_THREAD_ID:-}${CODEX_SESSION_ID:-}" ] || { printf 'codex\n'; return 0; }
+    return 1
+}
+
 detect_agent_from_parents() {
     pid="$PPID"
 
@@ -280,7 +289,7 @@ launch_tmux_editor() {
     return "$editor_status"
 }
 
-agent="${DOTAGENT_AGENT:-$(detect_agent_from_parents)}"
+agent="${DOTAGENT_AGENT:-$(detect_agent_from_environment || detect_agent_from_parents)}"
 
 case "$agent" in
     claude|claude-code)
