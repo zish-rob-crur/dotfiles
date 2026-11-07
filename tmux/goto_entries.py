@@ -14,6 +14,7 @@ Each output line is tab-separated for the shell script:
 with "-" for empty fields (bash `read` collapses empty tab-separated fields).
 state is CURRENT, VISIBLE (shown by another Ghostty client of the same session
 group; the target_* fields name that client) or NORMAL.
+VISIBLE windows come first, keeping each window's panes together.
 """
 
 from __future__ import annotations
@@ -120,8 +121,10 @@ def main(argv: list[str]) -> int:
         fields = [kind, id_, display, state, window_id, pane_id, *target, window_index, pane_index]
         out.append("\t".join(f.replace("\t", " ") or "-" for f in fields))
 
-    for window_id, index, name, badge, active_pane, path in rows(["list-windows", "-t", args.session, "-F", FS.join(
-            ["#{window_id}", "#{window_index}", "#{window_name}", "#{@codex-badge}", "#{pane_id}", "#{pane_current_path}"])], 6):
+    windows = rows(["list-windows", "-t", args.session, "-F", FS.join(
+        ["#{window_id}", "#{window_index}", "#{window_name}", "#{@codex-badge}", "#{pane_id}", "#{pane_current_path}"])], 6)
+    windows.sort(key=lambda row: not (row[0] in visible and row[0] != args.window_id))
+    for window_id, index, name, badge, active_pane, path in windows:
         mark = "*" if window_id == args.window_id else " "
         where = f"  {CYAN}⧉ {visible[window_id][2] or visible[window_id][1]}{RESET}" if window_id in visible else ""
         directory = os.path.basename(path)

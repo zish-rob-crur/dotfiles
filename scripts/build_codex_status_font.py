@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 # /// script
-# dependencies = ["fonttools==4.59.0", "pillow==11.3.0"]
+# dependencies = ["fonttools==4.59.0"]
 # ///
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 from fontTools.fontBuilder import FontBuilder
+from fontTools.pens.boundsPen import BoundsPen
+from fontTools.pens.cu2quPen import Cu2QuPen
 from fontTools.pens.ttGlyphPen import TTGlyphPen
+from fontTools.svgLib.path import SVGPath
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -20,6 +24,8 @@ POSTSCRIPT_NAME = "CodexStatusSymbols-Regular"
 CODEX_CODEPOINT = 0xE00B
 TERMINAL_CODEPOINT = 0xE00C
 SPLIT_CODEPOINT = 0xE00D
+OPENAI_CODEPOINT = 0xE00E
+DEEPSEEK_CODEPOINT = 0xE00F
 LEGACY_CODEX_CODEPOINT = 0x100000
 UNITS_PER_EM = 1000
 ADVANCE_WIDTH = 1000
@@ -27,7 +33,24 @@ ASCENT = 1020
 DESCENT = -300
 WIN_DESCENT = 300
 VISUAL_CENTER_Y = 360
-CODEX_TEMPLATE_PNG = Path("/Applications/Codex.app/Contents/Resources/codexTemplate@2x.png")
+
+
+def build_brand_glyph(name: str):
+    svg_path = REPO_ROOT / "fonts" / "lobehub" / f"{name}.svg"
+    bounds_pen = BoundsPen(None)
+    SVGPath(svg_path).draw(bounds_pen)
+    if bounds_pen.bounds is None:
+        raise ValueError(f"SVG has no visible paths: {svg_path}")
+    x_min, y_min, x_max, y_max = bounds_pen.bounds
+    scale = 720 / max(x_max - x_min, y_max - y_min)
+    transform = (
+        scale, 0, 0, -scale,
+        ADVANCE_WIDTH / 2 - (x_min + x_max) / 2 * scale,
+        VISUAL_CENTER_Y + (y_min + y_max) / 2 * scale,
+    )
+    pen = TTGlyphPen(None)
+    SVGPath(svg_path, transform=transform).draw(Cu2QuPen(pen, max_err=0.5, reverse_direction=True))
+    return pen.glyph()
 
 
 def draw_polygon(pen: TTGlyphPen, points: list[tuple[int, int]], reverse: bool = False) -> None:
@@ -41,79 +64,9 @@ def draw_polygon(pen: TTGlyphPen, points: list[tuple[int, int]], reverse: bool =
 
 
 def build_codex_glyph():
-    if CODEX_TEMPLATE_PNG.exists():
-        return build_codex_glyph_from_template(CODEX_TEMPLATE_PNG)
-
     pen = TTGlyphPen(None)
-
-    # Fallback used when Codex.app is not installed.
-    draw_polygon(
-        pen,
-        [
-            (500, 760),
-            (600, 470),
-            (900, 360),
-            (600, 250),
-            (500, -40),
-            (400, 250),
-            (100, 360),
-            (400, 470),
-        ],
-    )
-    draw_polygon(
-        pen,
-        [
-            (500, 505),
-            (640, 360),
-            (500, 215),
-            (360, 360),
-        ],
-        reverse=True,
-    )
-
-    return pen.glyph()
-
-
-def build_codex_glyph_from_template(path: Path):
-    from PIL import Image
-
-    image = Image.open(path).convert("RGBA")
-    alpha = image.getchannel("A")
-    bbox = alpha.getbbox()
-    if bbox is None:
-        raise ValueError(f"Codex template has no visible pixels: {path}")
-
-    left, top, right, bottom = bbox
-    source_width = right - left
-    source_height = bottom - top
-    target_size = 680
-    offset_x = (ADVANCE_WIDTH - target_size) // 2
-    offset_y = 20
-    pixel = target_size / max(source_width, source_height)
-
-    pen = TTGlyphPen(None)
-    for y in range(top, bottom):
-        run_start = None
-        for x in range(left, right + 1):
-            visible = x < right and alpha.getpixel((x, y)) >= 80
-            if visible and run_start is None:
-                run_start = x
-            if (not visible) and run_start is not None:
-                x0 = offset_x + (run_start - left) * pixel
-                x1 = offset_x + (x - left) * pixel
-                y_top = offset_y + target_size - (y - top) * pixel
-                y_bottom = offset_y + target_size - (y + 1 - top) * pixel
-                draw_polygon(
-                    pen,
-                    [
-                        (round(x0), round(y_bottom)),
-                        (round(x1), round(y_bottom)),
-                        (round(x1), round(y_top)),
-                        (round(x0), round(y_top)),
-                    ],
-                )
-                run_start = None
-
+    # Convert the preserved SVG's screen coordinates back to font coordinates.
+    SVGPath(REPO_ROOT / "fonts" / "codex.svg", transform=(1, 0, 0, -1, 0, 0)).draw(pen)
     return pen.glyph()
 
 
@@ -159,24 +112,20 @@ def build_split_glyph():
     return pen.glyph()
 
 
-def build_font() -> None:
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+def build_font(output: Path = OUTPUT) -> None:
+    output.parent.mkdir(parents=True, exist_ok=True)
 
-    glyph_order = [".notdef", "space", "codex", "terminal", "split"]
+    glyph_order = [".notdef", "space", "codex", "terminal", "split", "openai", "deepseek"]
     glyphs = {
         ".notdef": TTGlyphPen(None).glyph(),
         "space": TTGlyphPen(None).glyph(),
         "codex": build_codex_glyph(),
         "terminal": build_terminal_glyph(),
         "split": build_split_glyph(),
+        "openai": build_brand_glyph("openai"),
+        "deepseek": build_brand_glyph("deepseek"),
     }
-    metrics = {
-        ".notdef": (ADVANCE_WIDTH, 0),
-        "space": (ADVANCE_WIDTH, 0),
-        "codex": (ADVANCE_WIDTH, 0),
-        "terminal": (ADVANCE_WIDTH, 0),
-        "split": (ADVANCE_WIDTH, 0),
-    }
+    metrics = {name: (ADVANCE_WIDTH, 0) for name in glyph_order}
 
     fb = FontBuilder(UNITS_PER_EM, isTTF=True)
     fb.setupGlyphOrder(glyph_order)
@@ -186,6 +135,8 @@ def build_font() -> None:
             CODEX_CODEPOINT: "codex",
             TERMINAL_CODEPOINT: "terminal",
             SPLIT_CODEPOINT: "split",
+            OPENAI_CODEPOINT: "openai",
+            DEEPSEEK_CODEPOINT: "deepseek",
             LEGACY_CODEX_CODEPOINT: "codex",
         }
     )
@@ -202,10 +153,10 @@ def build_font() -> None:
         {
             "familyName": FAMILY_NAME,
             "styleName": STYLE_NAME,
-            "uniqueFontIdentifier": f"{POSTSCRIPT_NAME};1.000",
+            "uniqueFontIdentifier": f"{POSTSCRIPT_NAME};1.100",
             "fullName": FULL_NAME,
             "psName": POSTSCRIPT_NAME,
-            "version": "Version 1.000",
+            "version": "Version 1.100",
         }
     )
     fb.setupPost(isFixedPitch=1)
@@ -216,8 +167,13 @@ def build_font() -> None:
     fb.font["OS/2"].panose.bProportion = 9
     fb.font["OS/2"].sxHeight = 550
     fb.font["OS/2"].sCapHeight = 730
-    fb.save(OUTPUT)
+    # Fixed OpenType epoch timestamps keep rebuilds byte-identical.
+    fb.font["head"].created = fb.font["head"].modified = 2082844800
+    fb.font.recalcTimestamp = False
+    fb.save(output)
 
 
 if __name__ == "__main__":
-    build_font()
+    parser = argparse.ArgumentParser(description="Build the terminal status font from vendored icon sources.")
+    parser.add_argument("--output", type=Path, default=OUTPUT)
+    build_font(parser.parse_args().output)

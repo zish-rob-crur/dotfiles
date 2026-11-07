@@ -1,0 +1,5 @@
+Generated using the built-in image_gen tool with transparent_background=true.
+The installer uses sips and iconutil to package this PNG into a multi-resolution macOS icon.
+
+Prompt:
+Use case: logo-brand. Create one production-ready macOS app icon for a personal productivity app named Task Board. Square 1024 x 1024 canvas. A single large rounded-square dark evergreen charcoal tile (#1e2326 to #2e3838) with subtle polished macOS depth. Center a bold minimal checklist: three generous horizontal warm ivory lines, with two mint/sage green checkmarks on the left and a warm golden empty rounded checkbox for the last row. Clear at 32 pixels. Calm elegant developer productivity aesthetic matching Everforest dark palette (sage #a7c080, mint #83c092, ivory #d3c6aa, golden #dbbc7f). Tile fills about 90 percent of canvas with consistent narrow transparent outer margins and rounded corners. Flat front-facing, clean precise geometry, gently raised material, restrained highlight. No words, no letters, no watermark, no surrounding scene, no extra objects. Real alpha transparency outside tile.

@@ -36,12 +36,24 @@ title, which is what deduplication matches:
 `add` and `tidy` convert inline links (`[text](url) <!-- feishu:<id> -->`) into
 that form, so writers may keep producing inline links.
 
+A sync may complete an item when evidence establishes its full deliverable,
+retaining a `[完成依据](<evidence url>)` link and completion date. Uncertain
+completion evidence becomes a `[疑似完成](<evidence url>)` link instead. The
+board shows that as "done?"; ticking the item or dismissing the hint removes it.
+
+An open item that has been carried for STALE_WEEKS weeks, or is STALE_OVERDUE_DAYS
+past its 📅 date, is marked stale on the board: it may be done and forgotten.
+Snoozing writes an Obsidian Tasks scheduled date (`⏳ YYYY-MM-DD`), and a stale
+item is not shown as stale again before that date.
+
     todo_notes.py ensure               create this week's files, carrying unfinished items over
     todo_notes.py nvim-args            nvim arguments opening one tab per vault (used by Hammerspoon)
     todo_notes.py tidy [vault]         move inline links of this week's file(s) into the reference block
     todo_notes.py list                 print this week's items
     todo_notes.py add <vault> <text>   append an item to this week's file
     todo_notes.py toggle <vault> <n>   flip the checkbox on line n of this week's file
+    todo_notes.py dismiss <vault> <n>  drop the "疑似完成" marker on line n, leaving the item open
+    todo_notes.py snooze <vault> <n>   set ⏳ to two weeks from today on line n (no stale flag till then)
     todo_notes.py edit [vault]         open this week's file(s) in Neovide, one tab per vault
 """
 
@@ -62,6 +74,13 @@ CONFIG_PATH = Path(os.environ.get("TASK_BOARD_CONFIG", str(Path.home() / ".confi
 ITEM_RE = re.compile(r"^(\s*- \[)( |x|X)(\] )(.*)$")
 DONE_STAMP_RE = re.compile(r"\s*✅ \d{4}-\d{2}-\d{2}")
 FROM_RE = re.compile(r"\(from (\d{4}-W\d{2})\)")
+SUSPECT_LABEL = "疑似完成"
+SCHEDULED_RE = re.compile(r"\s*⏳ (\d{4}-\d{2}-\d{2})")
+STALE_WEEKS = 3  # carried this many weeks
+STALE_OVERDUE_DAYS = 7  # or this far past its 📅 date
+SNOOZE_DAYS = 14
+# the marker as stored (reference link, after tidy) or as a writer passes it (inline, maybe with its id)
+SUSPECT_MARK_RE = re.compile(r"\s*\[疑似完成\](?:\[[^\]]+\]|\(https?://[^\s)]+\))(?:\s*<!--\s*feishu:[\w-]+\s*-->)?")
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.*?)\s*$")
 DEF_RE = re.compile(r'^\[([^\]]+)\]:\s*([a-z][\w+.-]*://\S+)(?:\s+"([^"]*)")?\s*$')  # [label]: url "title"; urls only, so "[注意]: 明天" stays text
 INLINE_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^\s)]+)\)")
@@ -94,6 +113,9 @@ class Item:
     priority: bool = False
     from_week: str = ""
     section: str = ""  # nearest "## Heading" above the item
+    suspect: str = ""  # evidence url when a sync thinks the item is finished; "" otherwise
+    scheduled: str = ""  # ⏳ date: snoozed until then
+    stale: str = ""  # why the item looks forgotten ("3w", "12d overdue"); "" otherwise
 
     def as_dict(self) -> dict:
         return {k: (str(v) if isinstance(v, Path) else v) for k, v in self.__dict__.items()}
@@ -222,20 +244,44 @@ def parse_item(vault: str, file: Path, number: int, line: str, defs: dict[str, L
         return None
     body = resolve_links(match.group(4), defs or {})
     done = match.group(2).lower() == "x"
+    suspect_match = re.search(r"\[疑似完成\]\((https?://[^\s)]+)\)", body)
+    suspect = suspect_match.group(1) if suspect_match and not done else ""
+    body = SUSPECT_MARK_RE.sub("", body)
     tags = re.findall(r"(?<!\S)@(\S+)", body)
     sources = re.findall(r"(?<!\S)#(\S+)", body)
     due_match = re.search(r"📅 (\d{4}-\d{2}-\d{2})", body)
+    scheduled_match = SCHEDULED_RE.search(body)
     from_match = FROM_RE.search(body)
     text = re.sub(r"<!--.*?-->", "", body)  # hidden ids such as <!-- feishu:om_… -->; the links stay for the board to render
-    for pattern in (r"(?<!\S)[@#]\S+", r"📅 \d{4}-\d{2}-\d{2}", r"✅ \d{4}-\d{2}-\d{2}", r"\(from \d{4}-W\d{2}\)"):
+    for pattern in (r"(?<!\S)[@#]\S+", r"📅 \d{4}-\d{2}-\d{2}", r"✅ \d{4}-\d{2}-\d{2}", r"⏳ \d{4}-\d{2}-\d{2}", r"\(from \d{4}-W\d{2}\)"):
         text = re.sub(pattern, "", text)
     priority = bool(re.search(r"⏫|🔺", body)) or text.strip().startswith("!")
     text = re.sub(r"⏫|🔺|🔼|🔽|⏬", "", text).strip().lstrip("!").strip()
     return Item(
         vault=vault, file=str(file), line=number, text=text, raw=line.rstrip("\n"), done=done,
         tags=tags, sources=sources, due=due_match.group(1) if due_match else "",
-        priority=priority, from_week=from_match.group(1) if from_match else "",
+        priority=priority, from_week=from_match.group(1) if from_match else "", suspect=suspect,
+        scheduled=scheduled_match.group(1) if scheduled_match else "",
     )
+
+
+def staleness(item: Item, week: str, today: dt.date | None = None) -> str:
+    """Why an open item looks forgotten, "" when it does not. `week` is the file's week."""
+    today = today or dt.date.today()
+    if item.done or (item.scheduled and item.scheduled > today.isoformat()):
+        return ""
+    reasons = []
+    try:
+        carried = (week_range(week)[0] - week_range(item.from_week or week)[0]).days // 7
+    except ValueError:
+        carried = 0
+    if carried >= STALE_WEEKS:
+        reasons.append(f"{carried}w")
+    if item.due:
+        late = (today - dt.date.fromisoformat(item.due)).days
+        if late >= STALE_OVERDUE_DAYS:
+            reasons.append(f"{late}d overdue")
+    return " · ".join(reasons)
 
 
 def parse_file(vault: str, file: Path) -> list[Item]:
@@ -301,8 +347,11 @@ def tidy_week(vault: Vault) -> Path:
 
 def this_week_items(vaults: list[Vault]) -> list[Item]:
     items = []
+    week = week_id()
     for vault in vaults:
-        items.extend(parse_file(vault.name, ensure_week(vault)))
+        for item in parse_file(vault.name, ensure_week(vault)):
+            item.stale = staleness(item, week)
+            items.append(item)
     return items
 
 
@@ -331,14 +380,55 @@ def toggle_item(vault: Vault, line_number: int, today: dt.date | None = None) ->
         raise ValueError(f"line {line_number} is not a todo item")
     done = match.group(2).lower() == "x"
     body = DONE_STAMP_RE.sub("", match.group(4).rstrip("\n"))
+    body = SUSPECT_MARK_RE.sub("", body)  # ticking settles it either way
     if done:
         new = f"{match.group(1)} {match.group(3)}{body}\n"
     else:
         stamp = (today or dt.date.today()).isoformat()
         new = f"{match.group(1)}x{match.group(3)}{body} ✅ {stamp}\n"
     lines[line_number - 1] = new
-    target.write_text("".join(lines), encoding="utf-8")
+    _write_tidy(target, lines)
     return not done
+
+
+def dismiss_suspect(vault: Vault, line_number: int) -> bool:
+    """Remove the "疑似完成" marker from an item, leaving it open. False when there was none."""
+    target = ensure_week(vault)
+    lines = target.read_text(encoding="utf-8").splitlines(keepends=True)
+    if not 1 <= line_number <= len(lines):
+        raise IndexError(f"line {line_number} is outside {target}")
+    line = lines[line_number - 1]
+    if not ITEM_RE.match(line):
+        raise ValueError(f"line {line_number} is not a todo item")
+    cleaned = SUSPECT_MARK_RE.sub("", line.rstrip("\n")) + "\n"
+    if cleaned == line:
+        return False
+    lines[line_number - 1] = cleaned
+    _write_tidy(target, lines)
+    return True
+
+
+def snooze_item(vault: Vault, line_number: int, days: int = SNOOZE_DAYS, today: dt.date | None = None) -> str:
+    """Set the item's ⏳ scheduled date `days` from today; returns that date."""
+    target = ensure_week(vault)
+    lines = target.read_text(encoding="utf-8").splitlines(keepends=True)
+    if not 1 <= line_number <= len(lines):
+        raise IndexError(f"line {line_number} is outside {target}")
+    line = lines[line_number - 1]
+    if not ITEM_RE.match(line):
+        raise ValueError(f"line {line_number} is not a todo item")
+    until = ((today or dt.date.today()) + dt.timedelta(days=days)).isoformat()
+    body = SCHEDULED_RE.sub("", line.rstrip("\n"))
+    body, _, carried = body.partition(" (from ")  # keep "(from Wnn)" last, where rollover expects it
+    lines[line_number - 1] = f"{body.rstrip()} ⏳ {until}" + (f" (from {carried}" if carried else "") + "\n"
+    _write_tidy(target, lines)
+    return until
+
+
+def _write_tidy(target: Path, lines: list[str]) -> None:
+    """Write lines back, dropping link definitions nothing refers to any more."""
+    tidied = tidy_lines([line.rstrip("\n") for line in lines])
+    target.write_text("\n".join(tidied) + "\n", encoding="utf-8")
 
 
 def _vim_escape(path: str) -> str:
@@ -408,6 +498,10 @@ def main(argv: list[str]) -> int:
         print(add_item(find_vault(vaults, argv[2]), " ".join(argv[3:])))
     elif command == "toggle" and len(argv) == 4:
         print("done" if toggle_item(find_vault(vaults, argv[2]), int(argv[3])) else "open")
+    elif command == "snooze" and len(argv) == 4:
+        print(snooze_item(find_vault(vaults, argv[2]), int(argv[3])))
+    elif command == "dismiss" and len(argv) == 4:
+        print("dismissed" if dismiss_suspect(find_vault(vaults, argv[2]), int(argv[3])) else "no marker")
     elif command == "edit":
         edit_week([find_vault(vaults, argv[2])] if len(argv) > 2 else vaults)
     else:

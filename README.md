@@ -18,7 +18,8 @@ scripts/bootstrap_dotfiles.sh --mode init
 This links the managed dotfiles, installs TPM, links AstroNvim from
 `~/GithubRepos/zish-rob-crur/AstroNvim`, installs the macOS package list from
 `Brewfile`, installs the default Node version through `nvm`, and installs
-default Cargo tools such as `spymux`.
+default Cargo tools such as `spymux`. On macOS it also rebuilds and installs
+the custom status font. `--skip-brew` requires `uv` to be installed already.
 
 For package-only refreshes:
 
@@ -54,11 +55,27 @@ mkdir -p ~/.config/ghostty
 ln -s ~/GithubRepos/dotfiles/ghostty/config ~/.config/ghostty/config
 mkdir -p ~/.config/ghostty/shaders
 ln -s ~/GithubRepos/dotfiles/ghostty/shaders/unfocused_mute.glsl ~/.config/ghostty/shaders/unfocused_mute.glsl
-mkdir -p ~/Library/Fonts
-cp ~/GithubRepos/dotfiles/fonts/CodexStatusSymbols.ttf ~/Library/Fonts/CodexStatusSymbols.ttf
+scripts/install_status_font.sh
 ```
 
 Ghostty expects `Maple Mono NF CN`; `brew bundle --file Brewfile` installs it. `CodexStatusSymbols.ttf` provides the custom Codex and lightweight terminal status icons.
+
+Both `scripts/bootstrap_dotfiles.sh --mode init` (or `--mode update`) and
+`macos/init.sh` build the status font with Python 3.13 via `uv`, using the
+builder's pinned dependencies. Builds use a temporary directory; an identical
+installed font is left untouched, and a changed font is backed up before replacement.
+The existing Codex outline is preserved in `fonts/codex.svg`; rebuilding no
+longer depends on an image inside the locally installed Codex app. To refresh
+the checked-in TTF, run `uv run --python 3.13 --script scripts/build_codex_status_font.py`.
+Preview with `scripts/install_status_font.sh --dry-run`, or install into an
+isolated directory with `scripts/install_status_font.sh --font-dir /tmp/status-font-test`.
+
+OpenAI (`U+E00E`) and DeepSeek (`U+E00F`) use vendored LobeHub SVGs; their
+fixed source revision, checksums, and license are documented in
+[`fonts/lobehub/README.md`](fonts/lobehub/README.md). Initialization does not
+download the SVGs. Ghostty's `font-codepoint-map` maps these symbols to
+`Codex Status Symbols`, retaining Maple Mono for regular text. Reload Ghostty's
+configuration after installing an updated font; restart Ghostty if it retains the old font.
 
 ## tmux
 

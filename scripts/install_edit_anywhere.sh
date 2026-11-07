@@ -184,6 +184,14 @@ done
 
 compile_ocr
 
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  if (( DRY_RUN )); then
+    DOTFILES_REPO="$DOTFILES_REPO" /bin/bash "${DOTFILES_REPO}/scripts/install_task_board.sh" --dry-run
+  else
+    DOTFILES_REPO="$DOTFILES_REPO" /bin/bash "${DOTFILES_REPO}/scripts/install_task_board.sh"
+  fi
+fi
+
 log "Installed from ${DOTFILES_REPO}"
 if (( DRY_RUN )); then
   log "Dry-run complete; no files were changed."

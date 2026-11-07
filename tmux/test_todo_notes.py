@@ -124,6 +124,92 @@ class LinkTests(unittest.TestCase):
             self.assertTrue(lines[-2].startswith("[fs-aaaaaa]: ") and lines[-1].startswith("[l-"))
 
 
+EVIDENCE = "https://applink.feishu.cn/client/chat/open?openChatId=oc_2&position=9"
+
+
+class SuspectTests(unittest.TestCase):
+    def week(self, tmp, *items):
+        vault = tn.Vault("work", Path(tmp))
+        target = tn.ensure_week(vault)
+        for item in items:
+            tn.add_item(vault, item)
+        return vault, target
+
+    def item(self, vault):
+        (item,) = tn.parse_file(vault.name, tn.ensure_week(vault))
+        return item
+
+    def test_marker_becomes_a_field_and_leaves_the_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault, target = self.week(tmp, f"发布 MR 12 [疑似完成]({EVIDENCE}) <!-- feishu:om_9abcdef -->")
+            self.assertIn("[疑似完成][fs-abcdef]", target.read_text())  # stored reference-style like any link
+            item = self.item(vault)
+            self.assertEqual(item.suspect, EVIDENCE)
+            self.assertEqual(item.text, "发布 MR 12")
+
+    def test_ticking_clears_the_marker_and_its_definition(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault, target = self.week(tmp, f"发布 MR 12 [疑似完成]({EVIDENCE}) <!-- feishu:om_9abcdef -->")
+            line = self.item(vault).line
+            self.assertTrue(tn.toggle_item(vault, line))
+            text = target.read_text()
+            self.assertNotIn("疑似完成", text)
+            self.assertNotIn(EVIDENCE, text)  # the evidence link was only used by the marker
+            self.assertTrue(self.item(vault).done)
+
+    def test_dismiss_keeps_the_item_open_and_its_other_links(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault, target = self.week(tmp, f"发布 MR 12 [飞书原消息]({FS}) [疑似完成]({EVIDENCE})")
+            line = self.item(vault).line
+            self.assertTrue(tn.dismiss_suspect(vault, line))
+            self.assertFalse(tn.dismiss_suspect(vault, line))  # nothing left to dismiss
+            item = self.item(vault)
+            self.assertFalse(item.done)
+            self.assertEqual(item.suspect, "")
+            self.assertIn(FS, target.read_text())
+            self.assertNotIn(EVIDENCE, target.read_text())
+
+    def test_a_done_item_is_never_suspect(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault, _ = self.week(tmp, f"- [x] 已完成 [疑似完成]({EVIDENCE}) ✅ 2026-09-28")
+            self.assertEqual(self.item(vault).suspect, "")
+
+
+class StaleTests(unittest.TestCase):
+    TODAY = tn.dt.date(2026, 9, 28)  # Monday of 2026-W40
+
+    def stale(self, line):
+        item = tn.parse_item("work", Path("w.md"), 1, line)
+        return tn.staleness(item, "2026-W40", self.TODAY)
+
+    def test_carried_for_three_weeks(self):
+        self.assertEqual(self.stale("- [ ] a (from 2026-W37)"), "3w")
+        self.assertEqual(self.stale("- [ ] a (from 2026-W38)"), "")  # two weeks is still fresh
+        self.assertEqual(self.stale("- [ ] new this week"), "")
+
+    def test_a_week_past_due(self):
+        self.assertEqual(self.stale("- [ ] a 📅 2026-09-16"), "12d overdue")
+        self.assertEqual(self.stale("- [ ] a 📅 2026-09-23"), "")
+        self.assertEqual(self.stale("- [ ] a 📅 2026-09-16 (from 2026-W36)"), "4w · 12d overdue")
+
+    def test_done_and_snoozed_items_are_not_stale(self):
+        self.assertEqual(self.stale("- [x] a (from 2026-W30) ✅ 2026-09-01"), "")
+        self.assertEqual(self.stale("- [ ] a ⏳ 2026-10-05 (from 2026-W30)"), "")
+        self.assertEqual(self.stale("- [ ] a ⏳ 2026-09-20 (from 2026-W30)"), "10w")  # the snooze ran out
+
+    def test_snooze_sets_the_scheduled_date_and_keeps_from_last(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = tn.Vault("work", Path(tmp))
+            target = tn.add_item(vault, "长期例行 ⏳ 2026-09-01 (from 2026-W36)")
+            (item,) = tn.parse_file("work", target)
+            until = tn.snooze_item(vault, item.line, today=self.TODAY)
+            self.assertEqual(until, "2026-10-12")
+            (item,) = tn.parse_file("work", target)
+            self.assertTrue(item.raw.endswith("长期例行 ⏳ 2026-10-12 (from 2026-W36)"), item.raw)
+            self.assertEqual(item.text, "长期例行")
+            self.assertEqual(item.from_week, "2026-W36")
+
+
 class NvimArgsTests(unittest.TestCase):
     def test_one_tab_per_vault_with_tab_local_directory(self):
         with tempfile.TemporaryDirectory() as tmp:
