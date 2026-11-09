@@ -187,3 +187,17 @@ chmod +x init_dev.sh
 ```
 
 def 
+
+### Pin active tmux windows
+
+- `<prefix> Ctrl+p`: pin or unpin the current window; its window number is underlined in the status bar.
+- `<prefix> g` (or `w`): `↑`/`↓` step window to window (match to match once you
+  type), `Tab`/`Shift+Tab` cycle the selected window's panes. Pinned windows appear first. `Alt+p` toggles the selected
+  window's pin, including when a child pane is selected.
+- `<prefix> F` → `menu` → `Pin or unpin current window`: the same action via search.
+
+A pin change keeps the popup open, the query and the selection. Pins belong to the
+window, survive renaming and client detach/attach, and are shared by linked
+sessions. tmux-resurrect's save and restore carry them across a server restart
+(`~/.local/share/tmux/focus-pins.tsv`). These pins are independent of Task Board's
+Markdown task pins.

@@ -6,8 +6,9 @@
 # the task board says it is doing. Typing filters; non-matching lines stay
 # dimmed so a matched pane is still seen under its window. The cursor follows
 # the best-scoring match, a query of digits alone goes to that window number, and
-# clearing the query returns to the current window; up/down move between
-# matches only.
+# clearing the query returns to the current window. Up/down step window to
+# window with no query and match to match with one (ctrl-k/ctrl-j always step
+# matches); tab/shift-tab cycle through the current window's panes.
 #
 # Enter on a window or pane already shown by another Ghostty client of the same
 # session group focuses that Ghostty window instead of switching this client.
@@ -40,16 +41,6 @@ if [[ -z "$current_session" || -z "$current_client" || -z "$current_window_id" ]
 fi
 [[ -n "$current_session" ]] || exit 0
 
-entries="$(python3 "${script_dir}/goto_entries.py" --client "$current_client" --session "$current_session" \
-  --group "${current_group:-$current_session}" --window-id "$current_window_id")"
-[[ -n "$entries" ]] || exit 0
-start="$(awk -F'\t' -v w="$current_window_id" '$1 == "W" && $5 == w { print NR; exit }' <<<"$entries")"
-window_lines="$(mktemp -t goto-windows)"  # "<window index><TAB><line>", for the cursor helper
-trap 'rm -f "$window_lines"' EXIT
-awk -F'\t' '$1 == "W" { print $10 "\t" NR }' <<<"$entries" > "$window_lines"
-
-popup=(-p -w 90% -h 80%)
-command -v fzf-tmux >/dev/null 2>&1 || { tmux display-message "fzf-tmux not found"; exit 0; }
 # Raw mode keeps every line, so the cursor and the matched characters carry the
 # eye: the whole current line is lit and each matched character is a block of
 # the terminal's own cyan (palette 6, the Claude status line's model color), so
@@ -57,18 +48,37 @@ command -v fzf-tmux >/dev/null 2>&1 || { tmux display-message "fzf-tmux not foun
 # only fade that also reaches the entries' own ANSI spans.
 hl='cyan:reverse:bold'
 if defaults read -g AppleInterfaceStyle 2>/dev/null | grep -q Dark; then
+  theme=dark
   colors="dark,hl:$hl,hl+:$hl,current-bg:#3d484d"
 else
+  theme=light
   colors="light,hl:$hl,hl+:$hl,current-bg:#dde4ea"
 fi
+state_dir="$(mktemp -d -t goto-pins)"
+trap 'rm -rf "$state_dir"' EXIT
+# The theme rides in the command itself: fzf-tmux's popup, where alt-p reloads,
+# does not inherit this script's environment.
+printf -v refresh '%q ' env GOTO_THEME="$theme" python3 "${script_dir}/goto_entries.py" --client "$current_client" \
+  --session "$current_session" --group "${current_group:-$current_session}" \
+  --window-id "$current_window_id" --state-dir "$state_dir"
+entries="$(eval "$refresh")"
+[[ -n "$entries" ]] || exit 0
+
+popup=(-p -w 90% -h 80%)
+command -v fzf-tmux >/dev/null 2>&1 || { tmux display-message "fzf-tmux not found"; exit 0; }
+printf -v step '%q' "${script_dir}/goto_step.sh"
+printf -v map '%q' "${state_dir}/windows"
 printf -v preview "tmux capture-pane -ep -S -60 -t %s" '{6}'
-out="$(fzf-tmux "${popup[@]}" -- --ansi --raw --layout=reverse --no-multi \
+out="$(fzf-tmux "${popup[@]}" -- --ansi --raw --track --id-nth=1,2 --layout=reverse --no-multi \
   --color="$colors" --highlight-line \
   --delimiter=$'\t' --with-nth=3 --expect=ctrl-o,ctrl-g \
-  --header="Enter: go  ·  ctrl-o: focus only  ·  ctrl-g: this client  ·  ctrl-/: preview" \
+  --header="Enter: go  ·  ↑↓: windows  ·  tab: panes  ·  ctrl-o: focus only  ·  ctrl-g: this client  ·  ctrl-/: preview  ·  alt-p: pin" \
+  --bind "alt-p:reload($refresh --toggle-pin {5})" \
   --preview="$preview" --preview-window='right:50%:hidden' --bind 'ctrl-/:toggle-preview' \
-  --bind "result:transform:${script_dir}/goto_cursor.sh {q} ${start:-1} ${window_lines}" \
-  --bind 'up:up-match,down:down-match,ctrl-k:up-match,ctrl-j:down-match' <<<"$entries")" || exit 0
+  --bind "result:transform:${script_dir}/goto_cursor.sh {q} '${state_dir}/start' '${state_dir}/windows'" \
+  --bind "up:transform:$step window up {q} {n} $map" --bind "down:transform:$step window down {q} {n} $map" \
+  --bind "tab:transform:$step pane next {q} {n} $map" --bind "btab:transform:$step pane prev {q} {n} $map" \
+  --bind 'ctrl-k:up-match,ctrl-j:down-match' <<<"$entries")" || exit 0
 
 key="${out%%$'\n'*}"
 selected="${out#*$'\n'}"

@@ -9,6 +9,11 @@ query=${1-}
 start=${2:-1}
 map=${3-}  # lines of "<window index><TAB><line number>"
 
+# Files, because a pin reload moves the lines and rewrites them.
+if [[ -f "$start" ]]; then start=$(cat "$start"); fi
+# A pin reload keeps the selection (fzf --track); only query edits reposition it.
+[[ "${FZF_KEY-}" == alt-p ]] && exit 0
+
 if [[ -z "$query" ]]; then
   printf 'pos(%s)\n' "$start"
   exit 0

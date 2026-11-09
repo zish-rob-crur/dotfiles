@@ -32,6 +32,10 @@ from tmux_panes import clean_command, clean_title, tmux  # noqa: E402
 FS = "\x1f"
 BOARD = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))) / "tmux-task-board" / "board.json"
 DIM, RESET, CYAN, BOLD, NOBOLD = "\033[2m", "\033[0m", "\033[36m", "\033[1m", "\033[22m"
+# Pane text sits well below the bold window names. A fixed grey, not dim: the
+# popup dims unmatched lines, and dim on dim would hide which panes matched.
+# fzf-goto.sh passes the macOS appearance in GOTO_THEME.
+MUTED = "\033[38;2;140;149;159m" if os.environ.get("GOTO_THEME") == "light" else "\033[38;2;122;132;120m"
 SHELLS = {"zsh", "bash", "fish", "sh"}
 STATE_GLYPHS = (("●", "\033[34m●"), ("◆", "\033[33m◆"), ("󰄬", "\033[32m✓"), ("×", "\033[31m×"))
 
@@ -96,7 +100,12 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser()
     for name in ("--client", "--session", "--group", "--window-id"):
         parser.add_argument(name, default="")
+    parser.add_argument('--state-dir', type=Path)
+    parser.add_argument('--toggle-pin')
     args = parser.parse_args(argv[1:])
+    if args.toggle_pin:
+        from window_pin import toggle_pin
+        toggle_pin(args.toggle_pin)
     group = args.group or args.session
     visible = visible_clients(args.client, args.session, group)
     board = load_board()
@@ -122,15 +131,15 @@ def main(argv: list[str]) -> int:
         out.append("\t".join(f.replace("\t", " ") or "-" for f in fields))
 
     windows = rows(["list-windows", "-t", args.session, "-F", FS.join(
-        ["#{window_id}", "#{window_index}", "#{window_name}", "#{@codex-badge}", "#{pane_id}", "#{pane_current_path}"])], 6)
-    windows.sort(key=lambda row: not (row[0] in visible and row[0] != args.window_id))
-    for window_id, index, name, badge, active_pane, path in windows:
+        ["#{window_id}", "#{window_index}", "#{window_name}", "#{@codex-badge}", "#{pane_id}", "#{pane_current_path}", "#{@focus-pin}"])], 7)
+    windows.sort(key=lambda row: (row[6] != '1', row[6] != '1' and not (row[0] in visible and row[0] != args.window_id)))
+    for window_id, index, name, badge, active_pane, path, pin in windows:
         mark = "*" if window_id == args.window_id else " "
         where = f"  {CYAN}⧉ {visible[window_id][2] or visible[window_id][1]}{RESET}" if window_id in visible else ""
         directory = os.path.basename(path)
         branch = branch_label(branches.get(window_id, ""), directory)
         branch = f" {DIM}⎇ {branch}{RESET}" if branch else ""
-        head = f"{index:>2}{mark} {glyph(badge)} {BOLD}{name}{NOBOLD}  {DIM}{directory}{RESET}{branch}{where}"
+        head = f"{'󰐃 ' if pin == '1' else '  '}{index:>2}{mark} {glyph(badge)} {BOLD}{name}{NOBOLD}  {DIM}{directory}{RESET}{branch}{where}"
         members = []
         for pid, pindex, cmd, title, stitle, ppath in panes.get(window_id, []):
             cmd = clean_command(cmd)
@@ -138,16 +147,22 @@ def main(argv: list[str]) -> int:
             if text or cmd not in SHELLS:
                 members.append((pid, pindex, cmd, ppath, text))
         if len(members) <= 1:
-            text = f"  {members[0][4]}" if members else ""
+            text = f"  {MUTED}{members[0][4]}{RESET}" if members else ""
             emit("W", window_id, f"{head}{text}".rstrip(), window_id, members[0][0] if members else active_pane, index, "")
             continue
         emit("W", window_id, head, window_id, active_pane, index, "")
         for n, (pid, pindex, cmd, ppath, text) in enumerate(members):
             branch = "└" if n == len(members) - 1 else "├"
             elsewhere = f"  {DIM}{os.path.basename(ppath)}{RESET}" if ppath != path else ""
-            emit("P", pid, f"     {DIM}{branch}{RESET} {cmd:<7} {text}{elsewhere}".rstrip(),
+            emit("P", pid, f"     {DIM}{branch}{RESET} {MUTED}{cmd:<7} {text}{RESET}{elsewhere}".rstrip(),
                  window_id, pid, index, pindex)
-    print("\n".join(out))
+    if args.state_dir:
+        window_rows = [(i, row.split('\t')) for i, row in enumerate(out, 1) if row.startswith('W\t')]
+        (args.state_dir / 'windows').write_text(''.join(f'{fields[9]}\t{i}\n' for i, fields in window_rows))
+        start = next((i for i, fields in window_rows if fields[4] == args.window_id), 1)
+        (args.state_dir / 'start').write_text(str(start))
+    if out:
+        print("\n".join(out))
     return 0
 
 
