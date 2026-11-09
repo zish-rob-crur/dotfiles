@@ -31,7 +31,7 @@ from tmux_panes import clean_command, clean_title, tmux  # noqa: E402
 
 FS = "\x1f"
 BOARD = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))) / "tmux-task-board" / "board.json"
-DIM, RESET, CYAN = "\033[2m", "\033[0m", "\033[36m"
+DIM, RESET, CYAN, BOLD, NOBOLD = "\033[2m", "\033[0m", "\033[36m", "\033[1m", "\033[22m"
 SHELLS = {"zsh", "bash", "fish", "sh"}
 STATE_GLYPHS = (("●", "\033[34m●"), ("◆", "\033[33m◆"), ("󰄬", "\033[32m✓"), ("×", "\033[31m×"))
 
@@ -130,7 +130,7 @@ def main(argv: list[str]) -> int:
         directory = os.path.basename(path)
         branch = branch_label(branches.get(window_id, ""), directory)
         branch = f" {DIM}⎇ {branch}{RESET}" if branch else ""
-        head = f"{index:>2}{mark} {glyph(badge)} {name}  {DIM}{directory}{RESET}{branch}{where}"
+        head = f"{index:>2}{mark} {glyph(badge)} {BOLD}{name}{NOBOLD}  {DIM}{directory}{RESET}{branch}{where}"
         members = []
         for pid, pindex, cmd, title, stitle, ppath in panes.get(window_id, []):
             cmd = clean_command(cmd)

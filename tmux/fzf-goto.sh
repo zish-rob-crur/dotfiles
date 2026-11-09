@@ -5,7 +5,7 @@
 # assistant state, and under them the panes worth telling apart, each with what
 # the task board says it is doing. Typing filters; non-matching lines stay
 # dimmed so a matched pane is still seen under its window. The cursor follows
-# the first match, a query of digits alone goes to that window number, and
+# the best-scoring match, a query of digits alone goes to that window number, and
 # clearing the query returns to the current window; up/down move between
 # matches only.
 #
@@ -50,8 +50,20 @@ awk -F'\t' '$1 == "W" { print $10 "\t" NR }' <<<"$entries" > "$window_lines"
 
 popup=(-p -w 90% -h 80%)
 command -v fzf-tmux >/dev/null 2>&1 || { tmux display-message "fzf-tmux not found"; exit 0; }
+# Raw mode keeps every line, so the cursor and the matched characters carry the
+# eye: the whole current line is lit and each matched character is a block of
+# the terminal's own cyan (palette 6, the Claude status line's model color), so
+# it follows the light/dark theme. Unmatched lines keep fzf's default dim, the
+# only fade that also reaches the entries' own ANSI spans.
+hl='cyan:reverse:bold'
+if defaults read -g AppleInterfaceStyle 2>/dev/null | grep -q Dark; then
+  colors="dark,hl:$hl,hl+:$hl,current-bg:#3d484d"
+else
+  colors="light,hl:$hl,hl+:$hl,current-bg:#dde4ea"
+fi
 printf -v preview "tmux capture-pane -ep -S -60 -t %s" '{6}'
-out="$(fzf-tmux "${popup[@]}" -- --ansi --raw --no-sort --layout=reverse --no-multi \
+out="$(fzf-tmux "${popup[@]}" -- --ansi --raw --layout=reverse --no-multi \
+  --color="$colors" --highlight-line \
   --delimiter=$'\t' --with-nth=3 --expect=ctrl-o,ctrl-g \
   --header="Enter: go  ·  ctrl-o: focus only  ·  ctrl-g: this client  ·  ctrl-/: preview" \
   --preview="$preview" --preview-window='right:50%:hidden' --bind 'ctrl-/:toggle-preview' \
