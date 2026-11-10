@@ -154,6 +154,13 @@ zinit light-mode for \
 ### End of Zinit's installer chunk
 
 # zinit plugins
+# fzf-tab: Tab completion through fzf. It needs compinit (run by oh-my-zsh above)
+# and must load before plugins that wrap widgets (autosuggestions, highlighting).
+zinit light Aloxaf/fzf-tab
+zstyle ':completion:*' menu no                          # fzf-tab replaces the menu
+zstyle ':completion:*:descriptions' format '[%d]'       # group headers; < and > switch groups
+zstyle ':completion:*' list-colors ${(s.:.)LS_COLORS}
+zstyle ':fzf-tab:complete:cd:*' fzf-preview 'ls -1 --color=always $realpath'
 zinit light zsh-users/zsh-autosuggestions
 zinit light zdharma-continuum/fast-syntax-highlighting
 zinit light jeffreytse/zsh-vi-mode
