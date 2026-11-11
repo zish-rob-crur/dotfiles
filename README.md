@@ -113,7 +113,7 @@ Codex session titles are mirrored into tmux pane labels and the `<prefix> + g`
 window/pane picker. Explicitly named sessions take priority; unnamed sessions
 use the same generated thread title shown by Codex's resume picker.
 
-tmux-resurrect and `<prefix> + A` restore a Codex/Claude conversation only from
+tmux-resurrect and the command palette’s agent restart actions restore a Codex/Claude conversation only from
 an ID in the current process command or from fresh state that matches the pane,
 window, cwd, process lifetime, and tmux server generation. They never infer an
 ID from scrollback. Unverified resurrect entries return to a login shell
@@ -194,10 +194,19 @@ def
 - `<prefix> g` (or `w`): `↑`/`↓` step window to window (match to match once you
   type), `Tab`/`Shift+Tab` cycle the selected window's panes. Pinned windows appear first. `Alt+p` toggles the selected
   window's pin, including when a child pane is selected.
-- `<prefix> F` → `menu` → `Pin or unpin current window`: the same action via search.
+- `<prefix> F` → search `Pin`: the same action via search.
 
 A pin change keeps the popup open, the query and the selection. Pins belong to the
 window, survive renaming and client detach/attach, and are shared by linked
 sessions. tmux-resurrect's save and restore carry them across a server restart
 (`~/.local/share/tmux/focus-pins.tsv`). These pins are independent of Task Board's
 Markdown task pins.
+
+### Search tmux actions
+
+`<prefix> F` opens the command palette directly. Type `pin`, `restart`, `codex`
+or `claude` and press Enter. Restart actions cover all sessions in the current
+server and require a `y` confirmation because they interrupt running agents.
+Escape cancels. The former `<prefix> A` direct restart binding is removed.
+Choose `Browse tmux commands, keybindings and sessions` for the original tmux-fzf
+browser. `<prefix> :` still opens the native tmux command prompt.
