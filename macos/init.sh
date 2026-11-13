@@ -109,6 +109,7 @@ link_path "${DOTFILES_DIR}/ghostty/config" "${HOME}/.config/ghostty/config"
 link_path "${DOTFILES_DIR}/ghostty/shaders/unfocused_mute.glsl" "${HOME}/.config/ghostty/shaders/unfocused_mute.glsl"
 link_path "${DOTFILES_DIR}/karabiner/karabiner.json" "${HOME}/.config/karabiner/karabiner.json"
 "${DOTFILES_DIR}/scripts/install_status_font.sh"
+python3 "${DOTFILES_DIR}/tmux/agy-hook.py" --install
 
 # Helper scripts
 link_path "${DOTFILES_DIR}/fzf_scripts/ssh-fzf.sh" "${HOME}/.local/bin/ssh-fzf"

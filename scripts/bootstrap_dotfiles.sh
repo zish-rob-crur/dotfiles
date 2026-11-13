@@ -251,3 +251,6 @@ if [ "$(uname -s)" = "Darwin" ]; then
         "${DOTFILES_REPO}/scripts/install_status_font.sh"
     fi
 fi
+
+# Merge lifecycle hooks without replacing other Antigravity integrations.
+run python3 "${DOTFILES_REPO}/tmux/agy-hook.py" --install

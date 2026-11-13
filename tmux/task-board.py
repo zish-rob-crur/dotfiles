@@ -106,10 +106,9 @@ OUTPUT_SCHEMA = {
     "additionalProperties": False,
 }
 
-PROMPT = """下面是几个 tmux 窗口，每个窗口里有一个或多个 pane：可能是 AI 编程助手（codex 或
-claude）的会话，也可能是普通 shell、测试或编辑器。附带会话标题和终端最后几十行输出。
+PROMPT = """下面是几个 tmux 窗口，每个窗口里有一个或多个 pane：可能是 AI 编程助手（codex、claude 或 agy / Antigravity）的会话，也可能是普通 shell、测试或编辑器。附带会话标题和终端最后几十行输出。
 
-每个 codex 或 claude 的 pane 就是一条任务，一一对应，不要把多个助手 pane 合并成一条；
+每个 codex、claude 或 agy 的 pane 就是一条任务，一一对应，不要把多个助手 pane 合并成一条；
 普通 shell、测试或编辑器的 pane 是它旁边助手任务的辅助信息，不单独成条，但可以用来判断
 进展。panes 里写这条任务对应的 pane id。每条任务用中文写：
 
@@ -120,7 +119,7 @@ claude）的会话，也可能是普通 shell、测试或编辑器。附带会�
 - next：接下来会发生什么，或者正在等什么。如果在等用户批准、回答问题或确认，必须明确
   写出“等你……”；如果已经完成，写“已完成，待查看结果”之类。不超过 30 个字。
 
-每个 codex 或 claude 的 pane 都必须有自己的一条任务，不能遗漏。只根据给出的内容判断，不要臆测。
+每个 codex、claude 或 agy 的 pane 都必须有自己的一条任务，不能遗漏。只根据给出的内容判断，不要臆测。
 
 每个窗口可能带 previous：上一次生成的任务列表。它只用来保持措辞稳定，不是任务清单；
 当前 pane 里有而 previous 里没有的任务照样要列出来。对比规则：

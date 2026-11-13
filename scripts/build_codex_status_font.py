@@ -26,6 +26,7 @@ TERMINAL_CODEPOINT = 0xE00C
 SPLIT_CODEPOINT = 0xE00D
 OPENAI_CODEPOINT = 0xE00E
 DEEPSEEK_CODEPOINT = 0xE00F
+ANTIGRAVITY_CODEPOINT = 0xE010
 LEGACY_CODEX_CODEPOINT = 0x100000
 UNITS_PER_EM = 1000
 ADVANCE_WIDTH = 1000
@@ -67,6 +68,23 @@ def build_codex_glyph():
     pen = TTGlyphPen(None)
     # Convert the preserved SVG's screen coordinates back to font coordinates.
     SVGPath(REPO_ROOT / "fonts" / "codex.svg", transform=(1, 0, 0, -1, 0, 0)).draw(pen)
+    return pen.glyph()
+
+
+def build_antigravity_glyph():
+    """Original pixel A with floating cuts, sized like the preserved Codex mark."""
+    pen = TTGlyphPen(None)
+    for bottom in range(40, 680, 20):
+        if 440 <= bottom < 480 or 540 <= bottom < 580:
+            continue  # Two clear floating cuts survive small terminal sizes.
+        half = 80 + ((660 - bottom) // 40) * 16
+        left, right = 500 - half, 500 + half
+        inner = max(0, half - 112)
+        if bottom >= 620 or 360 <= bottom < 400:
+            draw_polygon(pen, [(left,bottom),(right,bottom),(right,bottom+20),(left,bottom+20)])
+        else:
+            for a, b in [(left,500-inner),(500+inner,right)]:
+                draw_polygon(pen, [(a,bottom),(b,bottom),(b,bottom+20),(a,bottom+20)])
     return pen.glyph()
 
 
@@ -115,7 +133,7 @@ def build_split_glyph():
 def build_font(output: Path = OUTPUT) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    glyph_order = [".notdef", "space", "codex", "terminal", "split", "openai", "deepseek"]
+    glyph_order = [".notdef", "space", "codex", "terminal", "split", "openai", "deepseek", "antigravity"]
     glyphs = {
         ".notdef": TTGlyphPen(None).glyph(),
         "space": TTGlyphPen(None).glyph(),
@@ -124,6 +142,7 @@ def build_font(output: Path = OUTPUT) -> None:
         "split": build_split_glyph(),
         "openai": build_brand_glyph("openai"),
         "deepseek": build_brand_glyph("deepseek"),
+        "antigravity": build_antigravity_glyph(),
     }
     metrics = {name: (ADVANCE_WIDTH, 0) for name in glyph_order}
 
@@ -137,6 +156,7 @@ def build_font(output: Path = OUTPUT) -> None:
             SPLIT_CODEPOINT: "split",
             OPENAI_CODEPOINT: "openai",
             DEEPSEEK_CODEPOINT: "deepseek",
+            ANTIGRAVITY_CODEPOINT: "antigravity",
             LEGACY_CODEX_CODEPOINT: "codex",
         }
     )
@@ -153,10 +173,10 @@ def build_font(output: Path = OUTPUT) -> None:
         {
             "familyName": FAMILY_NAME,
             "styleName": STYLE_NAME,
-            "uniqueFontIdentifier": f"{POSTSCRIPT_NAME};1.100",
+            "uniqueFontIdentifier": f"{POSTSCRIPT_NAME};1.110",
             "fullName": FULL_NAME,
             "psName": POSTSCRIPT_NAME,
-            "version": "Version 1.100",
+            "version": "Version 1.110",
         }
     )
     fb.setupPost(isFixedPitch=1)

@@ -224,3 +224,32 @@ server and require a `y` confirmation because they interrupt running agents.
 Escape cancels. The former `<prefix> A` direct restart binding is removed.
 Choose `Browse tmux commands, keybindings and sessions` for the original tmux-fzf
 browser. `<prefix> :` still opens the native tmux command prompt.
+
+### Antigravity CLI (`agy`)
+
+`macos/init.sh` and both init/update bootstrap entry points install the status
+font on macOS and merge the agy lifecycle hooks. Re-running them preserves
+existing hooks and skips an unchanged configuration.
+
+`agy` panes have a custom pixel Antigravity glyph (`U+E010`) in Codex Status Symbols and participate in Task Board
+summaries and window search. Install the lifecycle integration with:
+
+```sh
+python3 tmux/agy-hook.py --install
+```
+
+The installer merges a `dotfiles-tmux` entry into `~/.gemini/config/hooks.json`,
+backs up the existing file, and preserves other hooks (including Orca).
+Reopen existing agy sessions if they have already loaded their hook configuration.
+`PreInvocation` marks the pane as working and clears the previous unread marker.
+`Stop` marks completion only for `model_stop` (documented) or `NO_TOOL_CALL` (observed in agy 1.5.7)
+with `fullyIdle: true`; background
+work, cancellation and errors do not produce a successful-completion notification.
+Completion uses the existing tmux unread/acknowledgement state and Ghostty/macOS
+notification transport. Duplicate completion events are ignored. The global hook
+acts only when its inherited tmux server and foreground `agy` pane are valid;
+IDE events and ambiguous/missing pane identities are ignored.
+
+This integration adds identification, summaries and lifecycle notifications;
+assistant batch restart/resurrect remains limited to its existing Codex/Claude
+resume formats. Hook contract: [Antigravity hooks](https://antigravity.google/docs/hooks?tab=cli).

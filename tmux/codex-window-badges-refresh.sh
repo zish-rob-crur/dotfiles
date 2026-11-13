@@ -165,6 +165,7 @@ agent_tool() {
   title=${2:-}
 
   case "${command}" in
+    agy) printf 'agy'; return 0 ;;
     codex|codex-*) printf 'codex'; return 0 ;;
     claude|claude-*) printf 'claude'; return 0 ;;
   esac
@@ -333,6 +334,10 @@ record_captured_pane() {
   pane_content=$5
 
   pane_status=$(detect_pane_status "${tool}" "${pane_content}")
+  if [[ "${tool}" == agy ]]; then
+    pane_status=$(tmux_for_socket show-options -pqv -t "${pane_id}" @agy-state 2>/dev/null || true)
+    case "${pane_status}" in working|waiting|errored) ;; *) pane_status="" ;; esac
+  fi
   if [[ -z "${pane_status}" && "${running_title}" == "1" ]]; then
     pane_status="working"
   fi

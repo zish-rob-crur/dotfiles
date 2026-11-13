@@ -237,6 +237,14 @@ if [ "$(uname -s)" = "Darwin" ]; then
   fi
   "${DOTFILES_REPO}/scripts/install_edit_anywhere.sh" "${edit_anywhere_args[@]}"
 fi
+if [ "$(uname -s)" = "Darwin" ]; then
+  if (( DRY_RUN )); then
+    "${DOTFILES_REPO}/scripts/install_status_font.sh" --dry-run
+  else
+    "${DOTFILES_REPO}/scripts/install_status_font.sh"
+  fi
+fi
+run python3 "${DOTFILES_REPO}/tmux/agy-hook.py" --install
 ensure_tpm
 ensure_git_repo "$ASTRO_REPO" "$ASTRO_REMOTE" "AstroNvim"
 if [ "$MODE" = "update" ]; then

@@ -25,12 +25,14 @@ SHELL_ICON = ""
 GRID_ICON = ""
 CODEX_ICON = ""
 CLAUDE_ICON = "✳"
+AGY_ICON = ""  # Custom Antigravity glyph in Codex Status Symbols
 SHELL_LIST_ICON = "·"
 ELLIPSIS = "…"
 SPINNER_PREFIXES = tuple(f"{char} " for char in "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⠐")
 
 SHELL_COMMANDS = {"sh", "zsh", "bash", "fish", "tmux"}
 PRIORITY_ICONS = [
+    AGY_ICON,  # Antigravity CLI
     CLAUDE_ICON,  # Claude Code
     CODEX_ICON,  # Codex
     "",  # Vim / Neovim
@@ -93,6 +95,8 @@ def normalize_command(command: str) -> str:
 def icon_for_command(command: str) -> str:
     command = normalize_command(command)
 
+    if command == "agy":
+        return AGY_ICON
     if command.startswith("codex"):
         return CODEX_ICON
     if command.startswith("claude"):

@@ -37,7 +37,9 @@ def clean_icon(icon: str) -> str:
 
 
 def tool_of(command: str, title: str) -> str:
-    """'codex', 'claude' or '' for a pane."""
+    """Assistant tool name, or empty for an ordinary pane."""
+    if command == "agy":
+        return "agy"
     if command.startswith("codex"):
         return "codex"
     if command.startswith("claude") or (re.fullmatch(r"\d+\.\d+\.\d+", command) and title.startswith(("✳",) + SPINNERS)):
