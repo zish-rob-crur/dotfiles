@@ -16,6 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from assistant_startup import shell_command, start_interval
 from assistant_completion_state import server_state_dir
 from assistant_restore_args import (
     build_resume_words,
@@ -461,7 +462,7 @@ def fallback_shell_command() -> str:
     return f"exec {shlex.quote(shell)} -l"
 
 
-def rewrite_pane_line(parts: list[str]) -> Optional[str]:
+def rewrite_pane_line(parts: list[str], delay: float = 0) -> Optional[str]:
     if not valid_pane_parts(parts):
         return None
 
@@ -517,7 +518,7 @@ def rewrite_pane_line(parts: list[str]) -> Optional[str]:
         )
         if executable:
             resume_words[0] = executable
-            canonical = shlex.join(resume_words)
+            canonical = shell_command(resume_words, pane.get("path", "") or saved_dir, tool, delay)
         else:
             canonical = fallback_shell_command()
     else:
@@ -573,8 +574,13 @@ def rewrite_file(path: Path) -> None:
 
     changed = False
     rewritten: list[str] = []
+    slot = 0
+    interval = start_interval()
     for line in original.splitlines():
-        replacement = rewrite_pane_line(line.split("\t"))
+        parts = line.split("\t")
+        replacement = rewrite_pane_line(parts, delay=slot * interval)
+        if valid_pane_parts(parts) and ' -lic ' in (replacement or line).split('\t')[10]:
+            slot += 1
         if replacement is None:
             rewritten.append(line)
         else:

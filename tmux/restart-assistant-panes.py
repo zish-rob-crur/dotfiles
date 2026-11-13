@@ -12,11 +12,13 @@ import os
 import shlex
 import subprocess
 import sys
+import time
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Iterator, Optional
 
+from assistant_startup import shell_command, start_interval
 from assistant_completion_state import server_state_dir
 from assistant_restore_args import (
     build_resume_words,
@@ -380,34 +382,6 @@ def source_words(tool: str, exact_words: list[str]) -> list[str]:
     return [tool]
 
 
-def shell_command(words: list[str], cwd: str, tool: str) -> str:
-    runner = next(
-        (
-            path
-            for path in ("/bin/zsh", "/bin/bash", "/bin/sh")
-            if Path(path).is_file()
-        ),
-        "",
-    )
-    if not runner:
-        raise RuntimeError("no POSIX-compatible shell found")
-
-    login_shell = os.environ.get("SHELL", "")
-    if not login_shell or not Path(login_shell).is_file():
-        login_shell = runner
-
-    command = " ".join(shlex.quote(word) for word in words)
-    workdir = usable_dir(cwd)
-    inner = (
-        f"cd {shlex.quote(workdir)} 2>/dev/null || cd; "
-        f"{command}; "
-        "status=$?; "
-        f"printf '\\n[{tool} exited with status %s; shell refreshed]\\n' \"$status\"; "
-        f"exec {shlex.quote(login_shell)} -l"
-    )
-    return f"exec {shlex.quote(runner)} -lic {shlex.quote(inner)}"
-
-
 def list_panes() -> list[dict[str, str]]:
     fmt = "\t".join(
         [
@@ -619,6 +593,8 @@ def restart_panes(dry_run: bool, tool_filter: str) -> tuple[int, int, int]:
     restarted = 0
     skipped = 0
     found = 0
+    interval = start_interval()
+    last_started = None
 
     for pane in list_panes():
         tool = pane_tool(pane)
@@ -681,6 +657,11 @@ def restart_panes(dry_run: bool, tool_filter: str) -> tuple[int, int, int]:
             print(f"would restart {label} ({pane['pane_id']}; id from {source})")
             continue
 
+        if last_started is not None:
+            remaining = interval - (time.monotonic() - last_started)
+            if remaining > 0:
+                time.sleep(remaining)
+        # Revalidate the process after waiting, immediately before killing it.
         respawn_error = verified_respawn(
             pane,
             tool,
@@ -698,6 +679,7 @@ def restart_panes(dry_run: bool, tool_filter: str) -> tuple[int, int, int]:
             )
             continue
 
+        last_started = time.monotonic()
         restarted += 1
         print(f"restarted {label} ({pane['pane_id']}; id from {source})")
 

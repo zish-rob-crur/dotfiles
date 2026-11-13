@@ -237,7 +237,8 @@ detect_pane_status() {
           [[ "${line}" =~ Press[[:space:]]enter[[:space:]]to[[:space:]](confirm|continue) ]] ||
           [[ "${line}" =~ enter[[:space:]]to[[:space:]]submit[[:space:]]answer ]]; then
           detected_status="waiting"
-        elif [[ "${line}" =~ ^[[:space:]]*•.*esc[[:space:]]to[[:space:]]interrupt ]]; then
+        elif [[ "${line}" =~ ^[[:space:]]*•.*esc[[:space:]]to[[:space:]]interrupt ]] ||
+          [[ "${line}" =~ ^[[:space:]]*Working[[:space:]]\(.*esc[[:space:]]to[[:space:]]interrupt\) ]]; then
           detected_status="working"
         fi
         ;;

@@ -24,6 +24,41 @@ DEFAULT_SKY_CLIENT = (
 )
 
 
+def route_tmux_pane(payload: str, env: Dict[str, str]) -> None:
+    """Shared app-server notifications may inherit another CLI's TMUX_PANE."""
+    try:
+        thread_id = json.loads(payload).get("thread-id")
+        socket, server_pid, _ = env.get("TMUX", "").split(",", 2)
+        if not thread_id or not socket or not server_pid.isdigit():
+            return
+        listing = subprocess.check_output(
+            ["tmux", "-S", socket, "list-panes", "-a", "-F",
+             "#{pane_id}\t#{@codex-session-id}\t#{pane_current_command}\t#{pid}"],
+            env=env, text=True, stderr=subprocess.DEVNULL, timeout=2,
+        )
+    except (ValueError, AttributeError, OSError, subprocess.SubprocessError):
+        return
+
+    matches = set()
+    inherited_thread = ""
+    for line in listing.splitlines():
+        fields = line.split("\t")
+        if len(fields) != 4:
+            continue
+        pane, session, command, pid = fields
+        if pid != server_pid:
+            continue
+        if pane == env.get("TMUX_PANE"):
+            inherited_thread = session
+        if session == thread_id and (command == "codex" or command.startswith("codex-")):
+            matches.add(pane)
+    if len(matches) == 1:
+        env["TMUX_PANE"] = matches.pop()
+    elif matches or (inherited_thread and inherited_thread != thread_id):
+        # Never send an ambiguous completion to a different conversation.
+        env.pop("TMUX_PANE", None)
+
+
 def downstream_command(sky_client: Path, sidebar: Path, payload: str) -> List[str]:
     previous_notify = json.dumps(
         [str(sidebar), "notify", "--classified-root"],
@@ -47,6 +82,7 @@ def forward(
     received_ns: Optional[int] = None,
 ) -> int:
     env: Dict[str, str] = dict(os.environ if environment is None else environment)
+    route_tmux_pane(payload, env)
     env["CODEX_NOTIFY_CLASSIFICATION"] = CLASS_ROOT
     env["CODEX_NOTIFY_RECEIVED_NS"] = str(time.time_ns() if received_ns is None else received_ns)
     try:

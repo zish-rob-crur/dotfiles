@@ -121,5 +121,16 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(bare.topic, "agents-edit")
 
 
+
+class RenameRaceTests(unittest.TestCase):
+    def test_manual_rename_while_request_runs_wins(self):
+        from unittest.mock import patch
+        old = window()
+        proposal = {old.id: wn.finish(old, 'new-topic')}
+        current = window(name='my-manual-name', auto_rename=False)
+        with patch.object(wn, 'list_windows', return_value=[current]), patch.object(wn, 'tmux') as send:
+            self.assertEqual(wn.apply(proposal), set())
+            send.assert_not_called()
+
 if __name__ == "__main__":
     unittest.main()

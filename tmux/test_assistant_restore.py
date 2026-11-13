@@ -249,7 +249,7 @@ class ResumeParserTests(unittest.TestCase):
 
 
 class ResumeBuilderTests(unittest.TestCase):
-    def test_executable_is_resolved_to_absolute_path_before_shell(self) -> None:
+    def test_shell_invokes_user_command_name_after_executable_verification(self) -> None:
         with mock.patch.object(ARGS.shutil, "which", return_value="/bin/sh"):
             executable = ARGS.resolve_executable("codex", "/tmp")
         self.assertEqual(executable, os.path.abspath("/bin/sh"))
@@ -257,8 +257,8 @@ class ResumeBuilderTests(unittest.TestCase):
         command = RESTART.shell_command(
             [executable, "resume", SESSION_ID], "/tmp", "codex"
         )
-        self.assertIn(executable, command)
-        self.assertNotIn("; codex resume", command)
+        self.assertIn("; codex resume", command)
+        self.assertNotIn(executable + " resume", command)
 
     def test_path_executable_prefers_samefile_path_symlink(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -733,6 +733,18 @@ class RestartStateTests(unittest.TestCase):
         self.assertFalse(hasattr(RESTART, "capture_resume_id"))
 
 
+def resume_part(line):
+    command = line.split("\t")[10][1:]
+    shell_words = shlex.split(command)
+    inner = shell_words[-1]
+    lexer = shlex.shlex(inner, posix=True, punctuation_chars=';')
+    lexer.whitespace_split = True
+    words = list(lexer)
+    start = next(i for i, word in enumerate(words) if word in {'codex', 'claude'})
+    end = words.index(';', start)
+    return ':' + shlex.join(words[start:end])
+
+
 class ResurrectSaveHookTests(unittest.TestCase):
     def test_existing_codex_resume_is_canonicalized_and_sanitized(self) -> None:
         parts = saved_pane(
@@ -753,8 +765,8 @@ class ResurrectSaveHookTests(unittest.TestCase):
         self.assertIsNotNone(rewritten)
         assert rewritten is not None
         self.assertEqual(
-            rewritten.split("\t")[10],
-            f":{CODEX_BIN} --model gpt-5 --yolo resume {SESSION_ID}",
+            resume_part(rewritten),
+            f":codex --model gpt-5 --yolo resume {SESSION_ID}",
         )
 
     def test_existing_claude_resume_is_canonicalized_and_sanitized(self) -> None:
@@ -777,8 +789,8 @@ class ResurrectSaveHookTests(unittest.TestCase):
         self.assertIsNotNone(rewritten)
         assert rewritten is not None
         self.assertEqual(
-            rewritten.split("\t")[10],
-            f":{CLAUDE_BIN} --effort high --dangerously-skip-permissions "
+            resume_part(rewritten),
+            f":claude --effort high --dangerously-skip-permissions "
             f"--resume {SESSION_ID}",
         )
 
@@ -786,7 +798,7 @@ class ResurrectSaveHookTests(unittest.TestCase):
         with verified_hook_process(["codex", "--yolo", "resume", SESSION_ID]):
             self.assertIsNone(
                 RESURRECT.rewrite_pane_line(
-                    saved_pane(f"{CODEX_BIN} --yolo resume {SESSION_ID}")
+                    saved_pane(RESURRECT.shell_command([CODEX_BIN, "--yolo", "resume", SESSION_ID], "/tmp/project", "codex"))
                 )
             )
 
@@ -800,8 +812,8 @@ class ResurrectSaveHookTests(unittest.TestCase):
         self.assertIsNotNone(rewritten)
         assert rewritten is not None
         self.assertEqual(
-            rewritten.split("\t")[10],
-            f":{CODEX_BIN} --yolo resume {SESSION_ID}",
+            resume_part(rewritten),
+            f":codex --yolo resume {SESSION_ID}",
         )
 
     def test_unverified_bare_resume_restores_a_login_shell(self) -> None:
@@ -855,8 +867,8 @@ class ResurrectSaveHookTests(unittest.TestCase):
         self.assertIsNotNone(rewritten)
         assert rewritten is not None
         self.assertEqual(
-            rewritten.split("\t")[10],
-            f":{CODEX_BIN} --model current --yolo resume {SESSION_ID}",
+            resume_part(rewritten),
+            f":codex --model current --yolo resume {SESSION_ID}",
         )
 
     def test_fresh_state_without_exact_argv_builds_minimal_resume(self) -> None:
@@ -888,8 +900,8 @@ class ResurrectSaveHookTests(unittest.TestCase):
         self.assertIsNotNone(rewritten)
         assert rewritten is not None
         self.assertEqual(
-            rewritten.split("\t")[10],
-            f":{CODEX_BIN} --yolo resume {SESSION_ID}",
+            resume_part(rewritten),
+            f":codex --yolo resume {SESSION_ID}",
         )
 
     def test_multiple_live_exact_assistants_are_ambiguous(self) -> None:
@@ -927,8 +939,8 @@ class ResurrectSaveHookTests(unittest.TestCase):
         self.assertIsNotNone(rewritten)
         assert rewritten is not None
         self.assertEqual(
-            rewritten.split("\t")[10],
-            f":{CODEX_BIN} --model gpt-5 --yolo resume {SESSION_ID}",
+            resume_part(rewritten),
+            f":codex --model gpt-5 --yolo resume {SESSION_ID}",
         )
 
     def test_versioned_claude_binary_is_sanitized(self) -> None:
@@ -952,8 +964,8 @@ class ResurrectSaveHookTests(unittest.TestCase):
         self.assertIsNotNone(rewritten)
         assert rewritten is not None
         self.assertEqual(
-            rewritten.split("\t")[10],
-            f":{CLAUDE_BIN} --dangerously-skip-permissions --resume {SESSION_ID}",
+            resume_part(rewritten),
+            f":claude --dangerously-skip-permissions --resume {SESSION_ID}",
         )
 
     def test_malformed_resurrect_lines_are_ignored(self) -> None:

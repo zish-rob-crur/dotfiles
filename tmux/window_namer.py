@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Give tmux windows short, meaningful names with one batched `codex exec` call.
+"""Give tmux windows short, meaningful names with one batched OpenAI Responses API call.
 
 Every pane of a window contributes its directory, command, git branch and
 title; the model returns one topic per window and the script composes
@@ -10,12 +10,12 @@ user renamed by hand are never touched. Names set here are tracked in the
 window options @llm-name and @llm-key so later runs can tell them apart from
 manual renames and skip windows whose context has not changed.
 
-task-board.py names new windows automatically as part of its own codex call
+task-board.py names new windows automatically as part of its own API call
 (see `plan`, `describe`, `finish`); this CLI is the manual path:
 
     window_namer.py            name changed windows now
-    window_namer.py --print    show which windows would be sent, no codex call
-    window_namer.py --propose  ask codex and print the names without applying
+    window_namer.py --print    show which windows would be sent, no API call
+    window_namer.py --propose  ask OpenAI and print the names without applying
     window_namer.py --apply    apply the last proposal
 
 Project prefix overrides live in ~/.config/task-board/config.toml:
@@ -23,7 +23,7 @@ Project prefix overrides live in ~/.config/task-board/config.toml:
     [prefixes]
     "my-long-repo-name" = "mono"
 
-Every rename, release and codex call is appended to
+Every rename, release and API call is appended to
 $XDG_CACHE_HOME/tmux-window-namer/namer.log.
 """
 
@@ -41,7 +41,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import codex_batch  # noqa: E402
+import openai_client  # noqa: E402
 from tmux_panes import clean_command, clean_icon, clean_title, git_info, tmux  # noqa: E402
 
 STATE_DIR = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))) / "tmux-window-namer"
@@ -203,13 +203,18 @@ def list_windows() -> list[Window]:
         "#{pane_current_path}",
         "#{pane_current_command}",
         "#{?#{@codex-session-title},#{@codex-session-title},#{pane_title}}",
+        "#{pane_id}",
     ]
     git_info.cache_clear()  # branches may change between rounds
     windows: dict[str, Window] = {}
+    seen_panes = set()
     for line in tmux(["list-panes", "-a", "-F", FIELD_SEP.join(fields)]).splitlines():
         parts = line.split(FIELD_SEP)
         if len(parts) != len(fields):
             continue
+        if parts[10] in seen_panes:
+            continue
+        seen_panes.add(parts[10])
         window = windows.setdefault(
             parts[0],
             Window(
@@ -271,16 +276,16 @@ def describe(window: Window) -> dict:
     return info
 
 
-def ask_codex(to_name: list[Window], taken: list[str]) -> dict[str, str]:
+def ask_openai(to_name: list[Window], taken: list[str]) -> dict[str, str]:
     prompt = PROMPT.format(
         max_len=MAX_NAME_LENGTH,
         taken=", ".join(sorted(taken)) or "(none)",
         windows=json.dumps([describe(w) for w in to_name], ensure_ascii=False, indent=1),
     )
     try:
-        reply = codex_batch.ask(prompt, OUTPUT_SCHEMA, state_dir=STATE_DIR, log=log,
+        reply = openai_client.ask(prompt, OUTPUT_SCHEMA, state_dir=STATE_DIR, log=log,
                                 label=f"naming {[w.id for w in to_name]} taken={sorted(taken)}")
-    except codex_batch.CodexError:
+    except openai_client.OpenAIError:
         return {}
     names = {}
     for entry in reply.get("names", []):
@@ -297,14 +302,21 @@ def release(window: Window) -> None:
     tmux(["set", "-w", "-t", window.id, "automatic-rename", "on"])
 
 
-def apply(proposal: dict[str, dict]) -> None:
+def apply(proposal: dict[str, dict]) -> set[str]:
     """proposal maps window id -> {"old": ..., "name": ..., "key": ..., "context": ...}."""
+    applied = set()
+    current = {w.id: w for w in list_windows()}
     for window_id, entry in proposal.items():
+        window = current.get(window_id)
+        if window is None or window.name != entry.get('old') or window.key != entry['key'] or not (window.auto_rename or window.owned):
+            continue  # User rename/context changes while the API was in flight win.
         log.info("rename %s %r -> %r context=%s", window_id, entry.get("old"), entry["name"], json.dumps(entry.get("context"), ensure_ascii=False))
         tmux(["rename-window", "-t", window_id, entry["name"]])
         tmux(["set", "-w", "-t", window_id, "automatic-rename", "off"])
         tmux(["set", "-w", "-t", window_id, "@llm-name", entry["name"]])
         tmux(["set", "-w", "-t", window_id, "@llm-key", entry["key"]])
+        applied.add(window_id)
+    return applied
 
 
 def finish(window: Window, topic: str) -> dict:
@@ -313,7 +325,7 @@ def finish(window: Window, topic: str) -> dict:
 
 
 def propose() -> dict[str, dict]:
-    """Release stale windows, ask codex for the rest, return the proposal."""
+    """Release stale windows, ask OpenAI for the rest, return the proposal."""
     windows = list_windows()
     to_name, to_release = plan(windows)
     for window in to_release:
@@ -322,7 +334,7 @@ def propose() -> dict[str, dict]:
         return {}
     pending = {w.id for w in to_name}
     taken = [w.topic or w.name for w in windows if w.id not in pending]
-    topics = ask_codex(to_name, taken)
+    topics = ask_openai(to_name, taken)
     return {w.id: finish(w, topics[w.id]) for w in to_name if w.id in topics}
 
 
@@ -369,10 +381,10 @@ def setup_logging() -> None:
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(description="Name tmux windows with one batched codex call.")
+    parser = argparse.ArgumentParser(description="Name tmux windows with one batched API call.")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--print", action="store_const", const="print", dest="mode", help="show the plan without calling codex")
-    group.add_argument("--propose", action="store_const", const="propose", dest="mode", help="ask codex and save names for review")
+    group.add_argument("--propose", action="store_const", const="propose", dest="mode", help="ask OpenAI and save names for review")
     group.add_argument("--apply", action="store_const", const="apply", dest="mode", help="apply the saved proposal")
     args = parser.parse_args(argv[1:])
     setup_logging()

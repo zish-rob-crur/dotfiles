@@ -120,7 +120,7 @@ class BoardTests(unittest.TestCase):
         settled.panes.append(tb.Pane("%1", True, "codex", "/x", "t", "codex"))
         busy = window(id="@2", badge="●", activity=0)
         busy.panes.append(tb.Pane("%2", True, "codex", "/x", "t", "codex"))
-        with mock.patch.object(tb, "ask_codex", return_value={"@1": {"tasks": [{"summary": "s", "next": "等你确认", "change": "从运行中变为等待确认", "panes": ["%1"]}], "name": ""}}) as ask:
+        with mock.patch.object(tb, "ask_openai", return_value={"@1": {"tasks": [{"summary": "s", "next": "等你确认", "change": "从运行中变为等待确认", "panes": ["%1"]}], "name": ""}}) as ask:
             busy_cache = {"@2": {"hash": "old", "at": 990, "state": "running", "tasks": [{"summary": "b", "next": "n", "panes": []}]}}  # summarised 10 s ago
             board, cache, called = tb.build_board([settled, busy], busy_cache, now=1000, allow_llm=True)
             self.assertTrue(called)
@@ -133,14 +133,14 @@ class BoardTests(unittest.TestCase):
         # Changed scrollback, model says nothing changed: the previous summaries were sent and the old note is kept.
         settled.panes[0].title = "t2"
         with mock.patch.object(tb, "capture", side_effect=lambda pane_id: "new tail"):
-            with mock.patch.object(tb, "ask_codex", return_value={"@1": {"tasks": [{"summary": "s", "next": "等你确认", "change": "", "panes": ["%1"]}], "name": ""}}) as ask:
+            with mock.patch.object(tb, "ask_openai", return_value={"@1": {"tasks": [{"summary": "s", "next": "等你确认", "change": "", "keywords": [], "panes": ["%1"]}], "name": ""}}) as ask:
                 _, cache, _ = tb.build_board([settled], cache, now=3000, allow_llm=True)
                 self.assertEqual(ask.call_args[0][0][0]["previous"][0]["summary"], "s")
         self.assertEqual(cache["@1"]["tasks"][0]["change"], "从运行中变为等待确认")
         self.assertEqual(cache["@1"]["tasks"][0]["changed_at"], 1000)
         # Same scrollback again: served from cache, no call.
         with mock.patch.object(tb, "capture", side_effect=lambda pane_id: "new tail"):
-            with mock.patch.object(tb, "ask_codex") as ask:
+            with mock.patch.object(tb, "ask_openai") as ask:
                 _, _, called = tb.build_board([settled], cache, now=4000, allow_llm=True)
                 self.assertFalse(called)
                 ask.assert_not_called()
@@ -149,17 +149,39 @@ class BoardTests(unittest.TestCase):
         settled = window(id="@1", index=1, badge="◆", activity=0)
         settled.panes.append(tb.Pane("%1", True, "codex", "/x", "t", "codex"))
         cache = {"@1": {"hash": "old", "at": 0, "state": "running", "tasks": []}}
-        with mock.patch.object(tb, "ask_codex", side_effect=tb.codex_batch.CodexError("model not supported")):
+        with mock.patch.object(tb, "ask_openai", side_effect=tb.openai_client.OpenAIError("model not supported")):
             board, cache, called = tb.build_board([settled], cache, now=1000, allow_llm=False, allow_fast=True)
         self.assertEqual(called, "full")
         self.assertEqual(board["error"], "model not supported")
         self.assertEqual(cache["@1"]["fast_at"], 1000)
         self.assertEqual(cache["@1"]["tasks"], [])  # nothing overwritten
-        with mock.patch.object(tb, "ask_codex") as ask:
+        with mock.patch.object(tb, "ask_openai") as ask:
             _, _, called = tb.build_board([settled], cache, now=1100, allow_llm=False, allow_fast=True)
         ask.assert_not_called()  # same state mismatch, but the window is on cooldown
         self.assertEqual(called, "")
 
+
+
+class AsyncTests(unittest.TestCase):
+    def test_background_result_keeps_original_hash_and_discards_changed_task(self):
+        from concurrent.futures import Future
+        board = tb.Board()
+        old = {'id':'@1','window':'x','panes':[{'id':'%1','title':'task','path':'/x','branch':'main','tail':'old'}]}
+        future = Future()
+        board.pending = future
+        board.pending_payloads = [old]
+        with self.assertRaises(tb.RequestPending):
+            board.request([old], [])
+        future.set_result({'@1': {'tasks':[], 'name':''}})
+        newer = {**old, 'panes':[{**old['panes'][0], 'tail':'new'}]}
+        reply = board.request([newer], [])
+        expected = tb.hashlib.sha256(tb.json.dumps(old, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+        self.assertEqual(reply['@1']['_hash'], expected)
+        board.pending = Future()
+        board.pending.set_result({'@1': {'tasks':[], 'name':''}})
+        changed = {**old, 'panes':[{**old['panes'][0], 'title':'different task'}]}
+        self.assertEqual(board.request([changed], []), {})
+        board.executor.shutdown()
 
 if __name__ == "__main__":
     unittest.main()

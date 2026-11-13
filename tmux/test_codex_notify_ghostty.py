@@ -326,6 +326,43 @@ class RouterTests(unittest.TestCase):
     def payload(self, notification_type: str = "agent-turn-complete") -> str:
         return json.dumps({"type": notification_type, "thread-id": "thread"})
 
+    def test_shared_server_routes_to_matching_thread_and_dedupes_grouped_panes(self) -> None:
+        env = {"TMUX": "/tmp/test.sock,42,0", "TMUX_PANE": "%3"}
+        listing = "%3\tother\tcodex\t42\n%452\tthread\tcodex\t42\n%452\tthread\tcodex\t42\n"
+        with mock.patch.object(ROUTER.subprocess, "check_output", return_value=listing):
+            ROUTER.route_tmux_pane(self.payload(), env)
+        self.assertEqual(env["TMUX_PANE"], "%452")
+
+    def test_ambiguous_or_conflicting_thread_does_not_use_inherited_pane(self) -> None:
+        for listing in (
+            "%3\tother\tcodex\t42\n",
+            "%4\tthread\tcodex\t42\n%5\tthread\tcodex\t42\n",
+        ):
+            with self.subTest(listing=listing):
+                env = {"TMUX": "/tmp/test.sock,42,0", "TMUX_PANE": "%3"}
+                with mock.patch.object(ROUTER.subprocess, "check_output", return_value=listing):
+                    ROUTER.route_tmux_pane(self.payload(), env)
+                self.assertNotIn("TMUX_PANE", env)
+
+    def test_old_cli_without_session_cache_keeps_inherited_pane(self) -> None:
+        env = {"TMUX": "/tmp/test.sock,42,0", "TMUX_PANE": "%3"}
+        with mock.patch.object(ROUTER.subprocess, "check_output", return_value="%3\t\tcodex\t42\n"):
+            ROUTER.route_tmux_pane(self.payload(), env)
+        self.assertEqual(env["TMUX_PANE"], "%3")
+
+    def test_rebound_server_or_non_codex_pane_cannot_redirect_notification(self) -> None:
+        for listing in ("%4\tthread\tcodex\t99\n", "%4\tthread\tzsh\t42\n"):
+            env = {"TMUX": "/tmp/test.sock,42,0", "TMUX_PANE": "%3"}
+            with mock.patch.object(ROUTER.subprocess, "check_output", return_value=listing):
+                ROUTER.route_tmux_pane(self.payload(), env)
+            self.assertEqual(env["TMUX_PANE"], "%3")
+
+    def test_tmux_timeout_does_not_suppress_other_notifications(self) -> None:
+        env = {"TMUX": "/tmp/test.sock,42,0", "TMUX_PANE": "%3"}
+        with mock.patch.object(ROUTER.subprocess, "check_output", side_effect=subprocess.TimeoutExpired("tmux", 2)):
+            ROUTER.route_tmux_pane(self.payload(), env)
+        self.assertEqual(env["TMUX_PANE"], "%3")
+
     def test_root_is_forwarded_exactly_once(self) -> None:
         with (
             mock.patch.object(ROUTER, "classify_thread", return_value=COMMON.CLASS_ROOT),

@@ -123,6 +123,20 @@ model/reasoning flags are preserved. Restored Codex sessions are normalized to
 `--yolo`, and restored Claude sessions to `--dangerously-skip-permissions`; the
 temporary assistant launcher keeps the same bypass-permissions behavior.
 
+Both restore paths start the verified resume through an interactive login shell
+(`$SHELL`, bash/zsh), invoking `codex` or `claude` by name so current aliases and
+functions apply. Saved executable paths are used to verify availability, not to
+bypass shell configuration. An alias/function must forward the supplied resume
+arguments. After the agent exits, an interactive login shell remains available.
+
+Assistant starts are staggered by 3 seconds by default. Resurrect snapshots store
+0/3/6/... second delays before loading shell rc files; batch restart waits between
+panes and rechecks process identity after waiting. Set
+`TMUX_ASSISTANT_START_INTERVAL` in `tmux/.tmux.conf` to change the interval
+(`0` disables it). `--dry-run` never waits or restarts processes. Existing snapshots
+need a fresh tmux-resurrect save to receive this startup command.
+
+
 ## Install Package
 
 ### Mac OS

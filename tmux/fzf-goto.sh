@@ -3,8 +3,7 @@
 #
 # The list is the session as a tree (goto_entries.py): windows with their
 # assistant state, and under them the panes worth telling apart, each with what
-# the task board says it is doing. Typing filters; non-matching lines stay
-# dimmed so a matched pane is still seen under its window. The cursor follows
+# the task board says it is doing. Typing filters cached search metadata; matched panes keep their parent window. The cursor follows
 # the best-scoring match, a query of digits alone goes to that window number, and
 # clearing the query returns to the current window. Up/down step window to
 # window with no query and match to match with one (ctrl-k/ctrl-j always step
@@ -41,8 +40,7 @@ if [[ -z "$current_session" || -z "$current_client" || -z "$current_window_id" ]
 fi
 [[ -n "$current_session" ]] || exit 0
 
-# Raw mode keeps every line, so the cursor and the matched characters carry the
-# eye: the whole current line is lit and each matched character is a block of
+# The cursor carries the eye: the whole current line is lit and each matched character is a block of
 # the terminal's own cyan (palette 6, the Claude status line's model color), so
 # it follows the light/dark theme. Unmatched lines keep fzf's default dim, the
 # only fade that also reaches the entries' own ANSI spans.
@@ -68,12 +66,14 @@ popup=(-p -w 90% -h 80%)
 command -v fzf-tmux >/dev/null 2>&1 || { tmux display-message "fzf-tmux not found"; exit 0; }
 printf -v step '%q' "${script_dir}/goto_step.sh"
 printf -v map '%q' "${state_dir}/windows"
-printf -v preview "tmux capture-pane -ep -S -60 -t %s" '{6}'
-out="$(fzf-tmux "${popup[@]}" -- --ansi --raw --track --id-nth=1,2 --layout=reverse --no-multi \
+printf -v search '%q ' python3 "${script_dir}/goto_search.py" --state-dir "$state_dir" --window-id "$current_window_id"
+printf -v preview "printf '%%s\\n\\n' %s; tmux capture-pane -ep -S -60 -t %s" '{12}' '{6}'
+out="$(fzf-tmux "${popup[@]}" -- --ansi --disabled --no-sort --track --id-nth=1,2 --layout=reverse --no-multi \
   --color="$colors" --highlight-line \
   --delimiter=$'\t' --with-nth=3 --expect=ctrl-o,ctrl-g \
   --header="Enter: go  ·  ↑↓: windows  ·  tab: panes  ·  ctrl-o: focus only  ·  ctrl-g: this client  ·  ctrl-/: preview  ·  alt-p: pin" \
-  --bind "alt-p:reload($refresh --toggle-pin {5})" \
+  --bind "change:reload($search --query {q})" \
+  --bind "alt-p:reload($refresh --toggle-pin {5} >/dev/null && $search --query {q})" \
   --preview="$preview" --preview-window='right:50%:hidden' --bind 'ctrl-/:toggle-preview' \
   --bind "result:transform:${script_dir}/goto_cursor.sh {q} '${state_dir}/start' '${state_dir}/windows'" \
   --bind "up:transform:$step window up {q} {n} $map" --bind "down:transform:$step window down {q} {n} $map" \
@@ -84,7 +84,7 @@ key="${out%%$'\n'*}"
 selected="${out#*$'\n'}"
 [[ -n "$selected" && "$selected" != "$out" ]] || exit 0
 
-IFS=$'\t' read -r _type _id _display state window_id pane_id target_session target_client target_tty _index _pane_index <<<"$selected"
+IFS=$'\t' read -r _type _id _display state window_id pane_id target_session target_client target_tty _index _pane_index _search <<<"$selected"
 [[ "$target_tty" == "-" ]] && target_tty=""
 
 # A window line carries its active pane, or the one pane it stands for, so

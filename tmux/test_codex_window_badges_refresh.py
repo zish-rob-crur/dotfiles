@@ -265,6 +265,12 @@ class PaneStatusDetectionTest(unittest.TestCase):
             "waiting",
         )
 
+    def test_codex_working_without_leading_bullet(self) -> None:
+        self.assertEqual(
+            detect("codex", "Working (2m 01s • esc to interrupt)\n› Ask Codex to do anything"),
+            "working",
+        )
+
     def test_codex_error_takes_priority(self) -> None:
         self.assertEqual(
             detect(

@@ -27,4 +27,5 @@ if [[ "$query" =~ ^[0-9]+$ && -r "$map" ]]; then
   fi
 fi
 
-echo best
+# The external filter already ranks window groups; fzf matching is disabled.
+echo 'pos(1)'
