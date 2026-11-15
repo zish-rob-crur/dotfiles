@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Filter cached picker rows using full metadata, while displaying only column 3."""
 import argparse
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -40,14 +41,33 @@ def filter_rows(source: str, query: str) -> list[str]:
             if row.startswith('W\t') or tuple(row.split('\t')[:2]) in matches]
 
 
+def view_source(source: str, metadata: dict, view: str) -> str:
+    """Filter whole windows, keeping their pane rows and original sort order."""
+    if view == 'all':
+        return source
+    return '\n'.join(row for row in source.splitlines()
+                     if metadata.get(row.split('\t')[4], {}).get(view, False))
+
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--state-dir', required=True, type=Path)
     parser.add_argument('--window-id', default='')
     parser.add_argument('--query', default='')
+    parser.add_argument('--view', choices=('all', 'pinned', 'completed'))
+    parser.add_argument('--cycle-view', action='store_true')
     args = parser.parse_args()
-    rows = filter_rows((args.state_dir/'entries').read_text(), args.query)
+    view_file = args.state_dir/'view'
+    if args.view:
+        view_file.write_text(args.view)
+    view = view_file.read_text().strip() if view_file.exists() else 'all'
+    if args.cycle_view:
+        views = ('all', 'pinned', 'completed')
+        view = views[(views.index(view) + 1) % len(views)]
+        view_file.write_text(view)
+    source = (args.state_dir/'entries').read_text()
+    metadata = json.loads((args.state_dir/'window-meta.json').read_text()) if view != 'all' else {}
+    rows = filter_rows(view_source(source, metadata, view), args.query)
     windows = [(i, r.split('\t')) for i, r in enumerate(rows, 1) if r.startswith('W\t')]
     (args.state_dir/'windows').write_text(''.join(f'{r[9]}\t{i}\n' for i,r in windows))
     (args.state_dir/'start').write_text(str(next((i for i,r in windows if r[4] == args.window_id), 1)))

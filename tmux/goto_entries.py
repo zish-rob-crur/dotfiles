@@ -14,7 +14,7 @@ Each output line is tab-separated for the shell script:
 with "-" for empty fields (bash `read` collapses empty tab-separated fields).
 state is CURRENT, VISIBLE (shown by another Ghostty client of the same session
 group; the target_* fields name that client) or NORMAL.
-VISIBLE windows come first, keeping each window's panes together.
+Actionable windows come first; pins and visibility break ties within each state.
 """
 
 from __future__ import annotations
@@ -111,6 +111,21 @@ def visible_clients(current_client: str, session: str, group: str) -> dict[str, 
     return seen
 
 
+def window_sort_key(row: list[str], board_windows: dict, visible: dict, current: str) -> tuple:
+    """Actionable work first; pins break ties rather than promote completed work."""
+    wid, index, _name, badge, _pane, _path, pin = row
+    cached = board_windows.get(wid, {})
+    if '×' in badge or '◆' in badge:
+        priority = 0
+    elif '●' in badge:
+        priority = 1
+    elif '󰄬' in badge or '✓' in badge:
+        priority = 3
+    else:
+        priority = {'attention': 0, 'working': 1, 'review': 3}.get(cached.get('group'), 2)
+    return (priority, pin != '1', not (wid in visible and wid != current), int(index))
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser()
     for name in ("--client", "--session", "--group", "--window-id"):
@@ -148,7 +163,8 @@ def main(argv: list[str]) -> int:
 
     windows = rows(["list-windows", "-t", args.session, "-F", FS.join(
         ["#{window_id}", "#{window_index}", "#{window_name}", "#{@codex-badge}", "#{pane_id}", "#{pane_current_path}", "#{@focus-pin}"])], 7)
-    windows.sort(key=lambda row: (row[6] != '1', row[6] != '1' and not (row[0] in visible and row[0] != args.window_id)))
+    board_windows = {w.get('id'): w for w in board.get('windows', [])}
+    windows.sort(key=lambda row: window_sort_key(row, board_windows, visible, args.window_id))
     for window_id, index, name, badge, active_pane, path, pin in windows:
         mark = "*" if window_id == args.window_id else " "
         where = f"  {CYAN}⧉ {visible[window_id][2] or visible[window_id][1]}{RESET}" if window_id in visible else ""
@@ -174,6 +190,11 @@ def main(argv: list[str]) -> int:
             emit("P", pid, f"     {DIM}{branch}{RESET} {MUTED}{cmd:<7} {text}{RESET}{elsewhere}".rstrip(),
                  window_id, pid, index, pindex, search)
     if args.state_dir:
+        (args.state_dir / "window-meta.json").write_text(json.dumps({
+            row[0]: {"pinned": row[6] == '1',
+                     "completed": window_sort_key(row, board_windows, visible, args.window_id)[0] == 3}
+            for row in windows
+        }, ensure_ascii=False))
         (args.state_dir / "entries").write_text("\n".join(out) + "\n")
         window_rows = [(i, row.split('\t')) for i, row in enumerate(out, 1) if row.startswith('W\t')]
         (args.state_dir / 'windows').write_text(''.join(f'{fields[9]}\t{i}\n' for i, fields in window_rows))

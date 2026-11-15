@@ -9,10 +9,30 @@ query=${1-}
 start=${2:-1}
 map=${3-}  # lines of "<window index><TAB><line number>"
 
+# Keep the group indicator and next-group hint in sync with loaded results.
+view_file="$(dirname "$start")/view"
+view=all
+[[ ! -f "$view_file" ]] || view=$(cat "$view_file")
+case "$view" in
+  pinned) label=Pinned; next=Completed; tabs=$'All  ·  \033[1;36m[Pinned]\033[0m  ·  Completed' ;;
+  completed) label=Completed; next=All; tabs=$'All  ·  Pinned  ·  \033[1;36m[Completed]\033[0m' ;;
+  *) label=All; next=Pinned; tabs=$'\033[1;36m[All]\033[0m  ·  Pinned  ·  Completed' ;;
+esac
+printf -v header '%s    Ctrl+S → %s\nEnter: go · ↑↓: windows · Tab: panes · Alt+P: pin · Ctrl+/: preview · Ctrl+O: focus only · Ctrl+G: this client' "$tabs" "$next"
+if [[ "${4-}" == --header ]]; then
+  printf '%s\n' "$header"
+  exit 0
+fi
+printf -v prompt_action 'change-prompt(%s > )+change-header(%s)' "$label" "$header"
+
 # Files, because a pin reload moves the lines and rewrites them.
 if [[ -f "$start" ]]; then start=$(cat "$start"); fi
 # A pin reload keeps the selection (fzf --track); only query edits reposition it.
-[[ "${FZF_KEY-}" == alt-p ]] && exit 0
+if [[ "${FZF_KEY-}" == alt-p ]]; then
+  [[ -z "$prompt_action" ]] || printf '%s\n' "$prompt_action"
+  exit 0
+fi
+[[ -z "$prompt_action" ]] || printf '%s+' "$prompt_action"
 
 if [[ -z "$query" ]]; then
   printf 'pos(%s)\n' "$start"

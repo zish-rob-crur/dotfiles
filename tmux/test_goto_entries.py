@@ -35,6 +35,65 @@ class BranchTests(unittest.TestCase):
         self.assertEqual(ge.branch_label("", "dotfiles"), "")
 
 
+class WindowOrderTests(unittest.TestCase):
+    def test_done_pin_does_not_outrank_running_or_waiting(self):
+        def row(wid, index, badge='', pin=''):
+            return [wid, str(index), 'task', badge, '%1', '/work', pin]
+        rows = [row('@1',1,'󰄬','1'),row('@2',2,'●'),row('@3',3,'◆'),row('@4',4)]
+        ordered = sorted(rows, key=lambda r: ge.window_sort_key(r, {}, {}, ''))
+        self.assertEqual([r[0] for r in ordered], ['@3','@2','@4','@1'])
+
+    def test_acknowledged_completed_tasks_remain_below_active_work(self):
+        board = {'@1':{'group':'review'}}
+        done = ['@1','1','done','','%1','/x','1']
+        active = ['@2','2','active','●','%2','/y','']
+        self.assertGreater(ge.window_sort_key(done,board,{},''), ge.window_sort_key(active,board,{},''))
+        done[3] = '●'  # A new live turn supersedes an older completed summary.
+        self.assertLess(ge.window_sort_key(done,board,{},''), ge.window_sort_key(active,board,{},''))
+
+
+class ViewTests(unittest.TestCase):
+    def test_pinned_completed_overlap_preserves_whole_window(self):
+        from goto_search import view_source
+        def row(kind, wid):
+            return '\t'.join([kind, wid, 'task', 'NORMAL', wid, '%1', 'main', '-', '-', '1', '-', ''])
+        rows = [row('W', '@1'), row('P', '@1'), row('W', '@2')]
+        source = '\n'.join(rows)
+        metadata = {'@1': {'pinned': True, 'completed': True}, '@2': {'pinned': False, 'completed': False}}
+        self.assertEqual(view_source(source, metadata, 'all'), source)
+        for view in ('pinned', 'completed'):
+            self.assertEqual(view_source(source, metadata, view).splitlines(), rows[:2])
+        self.assertEqual(view_source(source, {}, 'pinned'), '')
+
+    def test_view_persists_across_queries_and_pin_reload(self):
+        import json
+        import subprocess
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            def row(wid):
+                return '\t'.join(['W', wid, 'handbook', 'NORMAL', wid, '%1', 'main', '-', '-', wid[1:], '-', ''])
+            (path/'entries').write_text(row('@1')+'\n'+row('@2')+'\n')
+            metadata = {'@1': {'pinned': True}, '@2': {'pinned': False}}
+            (path/'window-meta.json').write_text(json.dumps(metadata))
+            command = [sys.executable, str(Path(ge.__file__).with_name('goto_search.py')), '--state-dir', directory]
+            def run(*args):
+                return subprocess.check_output([*command, *args], text=True)
+            self.assertIn('@1', run('--cycle-view'))
+            self.assertEqual((path/'view').read_text(), 'pinned')
+            self.assertEqual(run('--cycle-view'), '')
+            self.assertEqual((path/'view').read_text(), 'completed')
+            self.assertIn('@2', run('--cycle-view'))
+            self.assertEqual((path/'view').read_text(), 'all')
+            self.assertIn('@1', run('--cycle-view'))
+            self.assertNotIn('@2', run('--query', 'handbook'))
+            metadata['@1']['pinned'] = False
+            (path/'window-meta.json').write_text(json.dumps(metadata))
+            self.assertEqual(run('--query', 'handbook'), '')
+            self.assertEqual((path/'windows').read_text(), '')
+            self.assertIn('@2', run('--view', 'all', '--query', 'handbook'))
+
+
 class GlyphTests(unittest.TestCase):
     def test_badge_glyphs(self):
         self.assertIn("◆", ge.glyph(" #[fg=#BF8700,bold]◆#[pop-default]"))

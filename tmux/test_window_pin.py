@@ -80,8 +80,16 @@ class WindowPinTests(unittest.TestCase):
         rows = self.entries()
         self.assertEqual(rows[0][4], self.second)
         command = ['bash', str(ROOT / 'goto_cursor.sh'), 'renamed', str(self.state / 'start'), str(self.state / 'windows')]
-        self.assertEqual(subprocess.check_output(command, text=True, env=dict(os.environ, FZF_KEY='d')), 'pos(1)\n')
-        self.assertEqual(subprocess.check_output(command, text=True, env=dict(os.environ, FZF_KEY='alt-p')), '')
+        for view, label, next_label in [('all', 'All', 'Pinned'), ('pinned', 'Pinned', 'Completed'), ('completed', 'Completed', 'All')]:
+            (self.state / 'view').write_text(view)
+            moved = subprocess.check_output(command, text=True, env=dict(os.environ, FZF_KEY='d'))
+            pinned = subprocess.check_output(command, text=True, env=dict(os.environ, FZF_KEY='alt-p'))
+            self.assertTrue(moved.endswith('+pos(1)\n'))
+            self.assertEqual(moved, pinned.rstrip('\n') + '+pos(1)\n')
+            self.assertNotIn('pos(', pinned)
+            self.assertIn('change-prompt(' + label + ' > )', pinned)
+            self.assertIn('[' + label + ']', pinned)
+            self.assertIn('Ctrl+S → ' + next_label, pinned)
 
 
 if __name__ == '__main__':

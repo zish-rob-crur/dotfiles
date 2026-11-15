@@ -205,9 +205,12 @@ def
 ### Pin active tmux windows
 
 - `<prefix> Ctrl+p`: pin or unpin the current window; its window number is underlined in the status bar.
-- `<prefix> g` (or `w`): `↑`/`↓` step window to window (match to match once you
-  type), `Tab`/`Shift+Tab` cycle the selected window's panes. Pinned windows appear first. `Alt+p` toggles the selected
-  window's pin, including when a child pane is selected.
+- `<prefix> g` (or `w`): the original fzf window/pane tree. `Ctrl+S` cycles
+  `All → Pinned → Completed`; the prompt names the current view.
+  Search stays within that view; switching views keeps the query. `↑`/`↓` select windows,
+  `Tab`/`Shift+Tab` cycle panes, and `Alt+p` toggles pin without closing the picker.
+  Default order: attention → working → idle → completed, with pins first within each state.
+  Search results retain relevance ordering. `Ctrl+/` toggles the original pane preview.
 - `<prefix> F` → search `Pin`: the same action via search.
 
 A pin change keeps the popup open, the query and the selection. Pins belong to the
