@@ -77,9 +77,9 @@ def pane_tasks(board: dict) -> dict[str, str]:
 
 
 def pane_keywords(board: dict) -> dict[str, str]:
-    return {pid: " ".join(task.get("keywords", []))
+    return {pid: " · ".join(task.get("keywords", []))
             for window in board.get("windows", []) for task in window.get("tasks", [])
-            for pid in task.get("panes", [])}
+            for pid in task.get("panes", []) if task.get("keywords")}
 
 
 def search_suffix(title: str, session_title: str, path: str, branch: str, keywords: str) -> str:
@@ -151,14 +151,14 @@ def main(argv: list[str]) -> int:
 
     out = []
 
-    def emit(kind, id_, display, window_id, pane_id, window_index, pane_index, search=""):
+    def emit(kind, id_, display, window_id, pane_id, window_index, pane_index, search="", kw="", meta=""):
         if window_id == args.window_id:
             state, target = "CURRENT", (args.session, args.client, "")
         elif window_id in visible:
             state, target = "VISIBLE", visible[window_id]
         else:
             state, target = "NORMAL", (args.session, args.client, "")
-        fields = [kind, id_, display, state, window_id, pane_id, *target, window_index, pane_index, search]
+        fields = [kind, id_, display, state, window_id, pane_id, *target, window_index, pane_index, search, kw or "(none)", meta or path]
         out.append("\t".join(f.replace("\t", " ") or "-" for f in fields))
 
     windows = rows(["list-windows", "-t", args.session, "-F", FS.join(
@@ -169,7 +169,8 @@ def main(argv: list[str]) -> int:
         mark = "*" if window_id == args.window_id else " "
         where = f"  {CYAN}⧉ {visible[window_id][2] or visible[window_id][1]}{RESET}" if window_id in visible else ""
         directory = os.path.basename(path)
-        branch = branch_label(branches.get(window_id, ""), directory)
+        wbranch = branches.get(window_id, "")
+        branch = branch_label(wbranch, directory)
         branch = ""  # Full branch and path are available in search and preview.
         head = f"{'󰐃 ' if pin == '1' else '  '}{index:>2}{mark} {glyph(badge)} {BOLD}{name}{NOBOLD}  {DIM}{directory}{RESET}{branch}{where}"
         members = []
@@ -177,21 +178,27 @@ def main(argv: list[str]) -> int:
             cmd = clean_command(cmd)
             text = pane_text(cmd, title, stitle, ppath, tasks.get(pid, ""))
             if text or cmd not in SHELLS:
-                search = search_suffix(title, stitle, ppath, branches.get(window_id, ""), keywords.get(pid, ""))
-                members.append((pid, pindex, cmd, ppath, text, search))
+                kw = keywords.get(pid, "")
+                search = search_suffix(title, stitle, ppath, wbranch, kw)
+                meta = search_suffix(title, stitle, ppath, wbranch, "")
+                members.append((pid, pindex, cmd, ppath, text, search, kw, meta))
+        wmeta = search_suffix("", "", path, wbranch, "")
         if len(members) <= 1:
             text = f"  {MUTED}{members[0][4]}{RESET}" if members else ""
-            emit("W", window_id, f"{head}{text}".rstrip(), window_id, members[0][0] if members else active_pane, index, "", members[0][5] if members else path)
+            emit("W", window_id, f"{head}{text}".rstrip(), window_id, members[0][0] if members else active_pane, index, "",
+                 members[0][5] if members else path, members[0][6] if members else "", members[0][7] if members else wmeta)
             continue
-        emit("W", window_id, head, window_id, active_pane, index, "", search_suffix("", "", path, branches.get(window_id, ""), ""))
-        for n, (pid, pindex, cmd, ppath, text, search) in enumerate(members):
+        win_kw = " · ".join(dict.fromkeys(k for m in members for k in m[6].split(" · ") if k))
+        emit("W", window_id, head, window_id, active_pane, index, "", search_suffix("", "", path, wbranch, win_kw), win_kw, wmeta)
+        for n, (pid, pindex, cmd, ppath, text, search, kw, meta) in enumerate(members):
             branch = "└" if n == len(members) - 1 else "├"
             elsewhere = f"  {DIM}{os.path.basename(ppath)}{RESET}" if ppath != path else ""
             emit("P", pid, f"     {DIM}{branch}{RESET} {MUTED}{cmd:<7} {text}{RESET}{elsewhere}".rstrip(),
-                 window_id, pid, index, pindex, search)
+                 window_id, pid, index, pindex, search, kw, meta)
     if args.state_dir:
         (args.state_dir / "window-meta.json").write_text(json.dumps({
             row[0]: {"pinned": row[6] == '1',
+                     "working": window_sort_key(row, board_windows, visible, args.window_id)[0] == 1,
                      "completed": window_sort_key(row, board_windows, visible, args.window_id)[0] == 3}
             for row in windows
         }, ensure_ascii=False))

@@ -1,6 +1,90 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ "${1:-}" == "--split" ]]; then
+  osascript - "${2:-}" >/dev/null 2>&1 <<'APPLESCRIPT' || true
+on run argv
+  set dir to item 1 of argv
+  if dir is "" then return
+  tell application "Ghostty"
+    if (count of windows) is 0 then return
+    set w1 to front window
+    set t1 to focused terminal of selected tab of w1
+    set id1 to id of t1
+    perform action ("goto_split:" & dir) on t1
+    set id2 to id of (focused terminal of selected tab of front window)
+    if id2 is not id1 then return
+    if (count of windows) < 2 then return
+  end tell
+
+  set bestTitle to ""
+  tell application "System Events"
+    if not (exists process "Ghostty") then return
+    tell process "Ghostty"
+      if (count of windows) < 2 then return
+      set frontWin to window 1
+      set {fx, fy} to position of frontWin
+      set {fw, fh} to size of frontWin
+      set fcx to fx + (fw / 2)
+      set fcy to fy + (fh / 2)
+
+      set bestWin to missing value
+      set bestDist to 999999999
+
+      repeat with i from 2 to (count of windows)
+        set w to window i
+        try
+          set {wx, wy} to position of w
+          set {ww, wh} to size of w
+          set wcx to wx + (ww / 2)
+          set wcy to wy + (wh / 2)
+          set dx to wcx - fcx
+          set dy to wcy - fcy
+
+          set matchesDir to false
+          if dir is "up" and dy < -50 then set matchesDir to true
+          if dir is "down" and dy > 50 then set matchesDir to true
+          if dir is "left" and dx < -50 then set matchesDir to true
+          if dir is "right" and dx > 50 then set matchesDir to true
+
+          if matchesDir then
+            set dist to (dx * dx) + (dy * dy)
+            if dist < bestDist then
+              set bestDist to dist
+              set bestWin to w
+              set bestTitle to (name of w) as text
+            end if
+          end if
+        end try
+      end repeat
+
+      if bestWin is missing value then return
+      try
+        perform action "AXRaise" of bestWin
+        set value of attribute "AXMain" of bestWin to true
+        set value of attribute "AXFocused" of bestWin to true
+      end try
+    end tell
+  end tell
+
+  if bestTitle is not "" then
+    tell application "Ghostty"
+      repeat with gw in windows
+        if (name of gw as text) is bestTitle then
+          activate window gw
+          try
+            focus (focused terminal of selected tab of gw)
+          end try
+          exit repeat
+        end if
+      end repeat
+    end tell
+  end if
+end run
+APPLESCRIPT
+  exit 0
+fi
+
 session_name=""
 client_name=""
 client_tty=""

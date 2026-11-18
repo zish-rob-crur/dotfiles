@@ -199,6 +199,41 @@ def state_resume_id(state: dict[str, object], tool: str) -> str:
     return str(value).strip() if is_uuid(value) else ""
 
 
+def exited_assistant_session(
+    pane: dict[str, str],
+    children: dict[str, list[tuple[str, str]]],
+    tool_filter: str,
+) -> tuple[str, str, str]:
+    if pane["command"] not in {"zsh", "bash"} or children.get(pane["pane_pid"]):
+        return "", "", ""
+    tail = tmux(["capture-pane", "-p", "-S", "-15", "-t", pane["pane_id"]], check=False)
+    for candidate in ("codex", "claude"):
+        if tool_filter not in {"all", candidate}:
+            continue
+        if f"[{candidate} exited with status " not in tail:
+            continue
+        for path, legacy in state_path_candidates(pane, candidate):
+            state = load_json(path)
+            if legacy and ambiguous_legacy_state(path.parent, state, pane["socket_path"]):
+                continue
+            if str(state.get("pane_id", "")).strip() != pane["pane_id"]:
+                continue
+            if str(state.get("window_id", "")).strip() != pane["window_id"]:
+                continue
+            state_cwd = str(state.get("cwd", "")).strip()
+            if not state_cwd or not pane["path"] or realpath(state_cwd) != realpath(pane["path"]):
+                continue
+            state_socket = str(state.get("tmux_socket", state.get("socket_path", ""))).strip()
+            if not pane.get("socket_path") or (
+                state_socket and realpath(state_socket) != realpath(pane["socket_path"])
+            ):
+                continue
+            session_id = state_resume_id(state, candidate)
+            if session_id:
+                return candidate, session_id, state_cwd
+    return "", "", ""
+
+
 def saved_session_id(
     tool: str,
     pane: dict[str, str],
@@ -493,14 +528,17 @@ def process_identity_matches(
         return False
     if live_pane["server_pid"] != pane.get("server_pid", ""):
         return False
-    if pane_tool(live_pane) != tool:
-        return False
     if realpath(live_pane.get("socket_path", "")) != realpath(
         pane.get("socket_path", "")
     ):
         return False
-
     live_children = children_by_parent(process_rows())
+    if live_pane["command"] in {"zsh", "bash"} and process_pid == pane["pane_pid"]:
+        if live_children.get(live_pane["pane_pid"]) or process_argv(process_pid) != exact_words:
+            return False
+        return process_lstart_epoch(process_pid) == process_start_epoch
+    if pane_tool(live_pane) != tool:
+        return False
     live_pid, live_words = current_assistant_process(live_pane, tool, live_children)
     if (
         live_pid != process_pid
@@ -598,11 +636,21 @@ def restart_panes(dry_run: bool, tool_filter: str) -> tuple[int, int, int]:
 
     for pane in list_panes():
         tool = pane_tool(pane)
+        recovered_session_id = ""
+        recovered_cwd = ""
+        if not tool:
+            tool, recovered_session_id, recovered_cwd = exited_assistant_session(
+                pane, children, tool_filter
+            )
         if not tool or (tool_filter != "all" and tool != tool_filter):
             continue
 
         found += 1
-        process_pid, exact_words = current_assistant_process(pane, tool, children)
+        if recovered_session_id:
+            process_pid = pane["pane_pid"]
+            exact_words = process_argv(process_pid)
+        else:
+            process_pid, exact_words = current_assistant_process(pane, tool, children)
         if not process_pid:
             skipped += 1
             print(
@@ -620,13 +668,18 @@ def restart_panes(dry_run: bool, tool_filter: str) -> tuple[int, int, int]:
             )
             continue
 
-        session_id = resume_id_from_words(exact_words, tool) if exact_words else ""
-        cwd = pane["path"]
-        source = "current command"
-        if not session_id:
-            session_id, state_cwd = saved_session_id(tool, pane, process_start)
-            cwd = state_cwd or cwd
-            source = "fresh pane state"
+        if recovered_session_id:
+            session_id = recovered_session_id
+            cwd = recovered_cwd or pane["path"]
+            source = "exited pane state"
+        else:
+            session_id = resume_id_from_words(exact_words, tool) if exact_words else ""
+            cwd = pane["path"]
+            source = "current command"
+            if not session_id:
+                session_id, state_cwd = saved_session_id(tool, pane, process_start)
+                cwd = state_cwd or cwd
+                source = "fresh pane state"
 
         if not session_id:
             skipped += 1

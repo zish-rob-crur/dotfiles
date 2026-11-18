@@ -67,7 +67,7 @@ command -v fzf-tmux >/dev/null 2>&1 || { tmux display-message "fzf-tmux not foun
 printf -v step '%q' "${script_dir}/goto_step.sh"
 printf -v map '%q' "${state_dir}/windows"
 printf -v search '%q ' python3 "${script_dir}/goto_search.py" --state-dir "$state_dir" --window-id "$current_window_id"
-printf -v preview "printf '%%s\\n\\n' %s; tmux capture-pane -ep -S -60 -t %s" '{12}' '{6}'
+printf -v preview "printf '\\033[2m%%s\\033[0m\\n\\033[1;36mKeywords:\\033[0m %%s\\n\\n' %s %s; tmux capture-pane -ep -S -60 -t %s" '{14}' '{13}' '{6}'
 header="$("${script_dir}/goto_cursor.sh" '' "$state_dir/start" "$state_dir/windows" --header)"
 out="$(fzf-tmux "${popup[@]}" -- --ansi --disabled --no-sort --track --id-nth=1,2 --layout=reverse --no-multi \
   --color="$colors" --highlight-line --prompt="All > " \
@@ -76,7 +76,7 @@ out="$(fzf-tmux "${popup[@]}" -- --ansi --disabled --no-sort --track --id-nth=1,
   --bind "ctrl-s:reload($search --cycle-view --query {q})" \
   --bind "change:reload($search --query {q})" \
   --bind "alt-p:reload($refresh --toggle-pin {5} >/dev/null && $search --query {q})" \
-  --preview="$preview" --preview-window='right:50%:hidden' --bind 'ctrl-/:toggle-preview' \
+  --preview="$preview" --preview-window='down:36%' --bind 'ctrl-/:toggle-preview' \
   --bind "result:transform:${script_dir}/goto_cursor.sh {q} '${state_dir}/start' '${state_dir}/windows'" \
   --bind "up:transform:$step window up {q} {n} $map" --bind "down:transform:$step window down {q} {n} $map" \
   --bind "tab:transform:$step pane next {q} {n} $map" --bind "btab:transform:$step pane prev {q} {n} $map" \

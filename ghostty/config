@@ -15,7 +15,7 @@ background-opacity-cells = false
 
 # Split focus（让当前分栏更突出）
 # 取值范围 0.15 ~ 1，越小未聚焦分栏越“暗”
-unfocused-split-opacity = 1
+unfocused-split-opacity = 0.70
 # 可选：自定义分割线颜色（不设置则由 Ghostty/主题自动选择）
 # split-divider-color = #403e3c
 # Ghostty 1.3：在 zoom 状态下切换分栏时保持 zoom

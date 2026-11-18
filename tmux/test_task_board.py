@@ -34,6 +34,10 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(tb.tool_of("2.1.260", "✳ Fix it"), "claude")
         self.assertEqual(tb.tool_of("zsh", "host"), "")
 
+    def test_clean_keywords_strips_noise_and_keeps_topic_terms(self):
+        raw = ["pigeon", "agy", "Antigravity", "tmux pane", "后台续聊", "44 项测试", "ccca3d6", "MR 443", "Pigeon"]
+        self.assertEqual(tb.clean_keywords(raw), ["pigeon", "MR 443"])
+
 
 class ThrottleTests(unittest.TestCase):
     def window(self, badge):
