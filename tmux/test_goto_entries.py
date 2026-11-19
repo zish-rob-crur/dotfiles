@@ -74,13 +74,17 @@ class ViewTests(unittest.TestCase):
             def row(wid):
                 return '\t'.join(['W', wid, 'handbook', 'NORMAL', wid, '%1', 'main', '-', '-', wid[1:], '-', ''])
             (path/'entries').write_text(row('@1')+'\n'+row('@2')+'\n')
-            metadata = {'@1': {'pinned': True}, '@2': {'pinned': False}}
+            metadata = {'@1': {'pinned': True}, '@2': {'pinned': False, 'working': True}}
             (path/'window-meta.json').write_text(json.dumps(metadata))
             command = [sys.executable, str(Path(ge.__file__).with_name('goto_search.py')), '--state-dir', directory]
             def run(*args):
                 return subprocess.check_output([*command, *args], text=True)
             self.assertIn('@1', run('--cycle-view'))
             self.assertEqual((path/'view').read_text(), 'pinned')
+            working = run('--cycle-view')
+            self.assertIn('@2', working)
+            self.assertNotIn('@1', working)
+            self.assertEqual((path/'view').read_text(), 'working')
             self.assertEqual(run('--cycle-view'), '')
             self.assertEqual((path/'view').read_text(), 'completed')
             self.assertIn('@2', run('--cycle-view'))
@@ -145,6 +149,71 @@ class SearchTests(unittest.TestCase):
 
     def test_default_shell_title_does_not_add_a_row(self):
         self.assertEqual(ge.pane_text('zsh','user@Mac:/work/call-e','','/work/call-e',''), '')
+
+    def test_bm25_ranks_keywords_above_incidental_meta_and_handles_bang_mr(self):
+        from goto_search import filter_rows
+        def row14(kind, ident, wid, display, widx, search, kw, meta):
+            return '\t'.join([kind, ident, display, 'NORMAL', wid, '%1', 'main', '-', '-',
+                              str(widx), '1', search, kw, meta])
+        source = '\n'.join([
+            row14('W', '@1', '@1', '1 misc-notes', 1, '/work/auth-notes', '(none)', '/work/auth-notes'),
+            row14('W', '@2', '@2', '2 backend-api', 2, '/work/service', 'oauth auth', '/work/service'),
+            row14('W', '@3', '@3', '3 gitlab review !MR', 3, '!MR', '!MR', '/work/mr'),
+            row14('W', '@4', '@4', '4 mr-cleanup', 4, 'mr cleanup', '(none)', '/work/cleanup'),
+            row14('W', '@5', '@5', '5 unrelated', 5, 'docs', '(none)', '/work/docs'),
+        ]) + '\n'
+
+        found = filter_rows(source, 'auth')
+        self.assertEqual([r.split('\t')[4] for r in found], ['@2', '@1'])
+
+        bang_found = filter_rows(source, '!MR')
+        self.assertEqual([r.split('\t')[4] for r in bang_found], ['@3'])
+        self.assertEqual(filter_rows(source, '!NOPE'), [])
+
+    def test_cross_window_and_pane_multi_term_query(self):
+        from goto_search import filter_rows
+        def row14(kind, ident, wid, display, widx, pidx, kw, meta):
+            return '\t'.join([kind, ident, display, 'NORMAL', wid, '%1', 'main', '-', '-',
+                              str(widx), str(pidx), meta, kw, meta])
+        source = '\n'.join([
+            row14('W', '@1', '@1', '3 call-e', 3, '-', 'call-e', '/work/call-e'),
+            row14('P', '%1', '@1', 'nvim redis_cache.go', 3, '1', 'cache', '/work/call-e'),
+            row14('P', '%2', '@1', 'zsh', 3, '2', '(none)', '/work/call-e'),
+            row14('W', '@2', '@2', '4 docs', 4, '-', 'readme', '/work/docs'),
+        ]) + '\n'
+
+        found = filter_rows(source, 'call-e redis_cache')
+        self.assertEqual([(r.split('\t')[0], r.split('\t')[1]) for r in found],
+                         [('W', '@1'), ('P', '%1')])
+
+    def test_home_prefix_stripped_while_fuzzy_abbreviation_still_works(self):
+        from goto_search import filter_rows
+        def row14(wid, display, widx, kw, meta):
+            return '\t'.join(['W', wid, display, 'NORMAL', wid, '%1', 'main', '-', '-',
+                              str(widx), '-', meta, kw, meta])
+        source = '\n'.join([
+            row14('@1', '1 notes', 1, '(none)', '/Users/alice/GitHubRepos/notes'),
+            row14('@2', '2 vault', 2, '(none)', '/Users/alice/Documents/obsidian/myvault'),
+            row14('@3', '3 dotfiles', 3, '(none)', '/Users/alice/GitHubRepos/dotfiles'),
+        ]) + '\n'
+
+        self.assertEqual(filter_rows(source, 'ug'), [])
+        self.assertEqual([r.split('\t')[4] for r in filter_rows(source, 'myvault')], ['@2'])
+        self.assertEqual([r.split('\t')[4] for r in filter_rows(source, 'df')], ['@3'])
+
+    def test_multi_term_partial_bm25_fallback_when_one_term_misses(self):
+        from goto_search import filter_rows
+        def row14(wid, display, widx, kw, meta):
+            return '\t'.join(['W', wid, display, 'NORMAL', wid, '%1', 'main', '-', '-',
+                              str(widx), '-', meta, kw, meta])
+        source = '\n'.join([
+            row14('@1', '1 win-one', 1, 'alpha', '/work/a'),
+            row14('@2', '2 win-two', 2, 'alpha beta', '/work/b'),
+            row14('@3', '3 win-none', 3, 'gamma', '/work/c'),
+        ]) + '\n'
+
+        found = filter_rows(source, 'alpha beta nonexistentterm')
+        self.assertEqual([r.split('\t')[4] for r in found], ['@2', '@1'])
 
 
 if __name__ == "__main__":

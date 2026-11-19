@@ -53,6 +53,7 @@ STATE_DIR = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))) 
 BOARD_PATH = STATE_DIR / "board.json"
 CACHE_PATH = STATE_DIR / "summaries.json"
 LOG_PATH = STATE_DIR / "board.log"
+CONTEXT_PATH = Path(os.environ.get("TASK_BOARD_CONTEXT", str(Path.home() / ".config/task-board/context.md")))
 INTERVAL = float(os.environ.get("TMUX_TASK_BOARD_INTERVAL", "10"))
 LLM_MIN_GAP = 300  # normal cadence between API calls
 FAST_GAP = 60  # cadence when a badge state changed
@@ -123,7 +124,7 @@ PROMPT = """下面是几个 tmux 窗口，每个窗口里有一个或多个 pane
 
 - keywords：4–8 个高区分度搜索词，方便用户按中英文或标识快速搜到该任务，按以下槽位提取：
   1. 业务域/功能模块的中英文同义词（如“配置覆盖”与“config override”、“快慢脑”与“fast-slow”、“语音语言”与“voice language”）；
-  2. 涉及的人名与全拼（如“曾祺雯”与“Zeng-Qiwen”）；
+  2. 涉及的人名与全拼（同时保留中文名与拼音/英文标识）；
   3. 精确技术锚点（MR/Issue 编号如“MR 443”/“!1824”、核心文件名/类名如“AgenticRunWorker”）；
   4. 问题或任务性质的中英文词（如“面试评估”与“interview”、“502”、“切流周报”）。
   严禁填入：AI 工具名本身（codex/claude/agy/Antigravity/Gemini）、泛 Git 词（commit/push/rebase/main/推送/提交）、
@@ -150,7 +151,7 @@ worktree 或分支上，名字要先写能区分它们的标识：MR 或 issue �
 词才写进去，不要为了凑满长度而堆词。不能和 taken_names 里的重复。其他窗口 name 留空字符串。
 
 输出严格按 schema。
-
+{context_block}
 taken_names: {taken}
 
 窗口：
@@ -262,7 +263,7 @@ def context_of(window: Window) -> tuple[str, dict]:
     return digest, payload
 
 
-def clean_keywords(raw: list) -> list[str]:
+def clean_keywords(raw: list, limit: int = 10) -> list[str]:
     out = []
     seen = set()
     for item in raw:
@@ -272,7 +273,26 @@ def clean_keywords(raw: list) -> list[str]:
             continue
         seen.add(key)
         out.append(kw)
-    return out[:8]
+    return out[:limit]
+
+
+def enrich_window_keywords(window: Window, raw: list) -> list[str]:
+    extras: list[str] = []
+    repo = window.git_pane.repo if window.git_pane else ""
+    branch = window.git_pane.branch if window.git_pane else ""
+    paths = " ".join(p.path for p in window.panes).lower()
+    if "s-eleven" in repo.lower() or "seleven" in paths or "calle" in paths:
+        extras.append("call-e")
+    if branch and branch not in {"main", "master", "dev"}:
+        extras.append(branch)
+    return clean_keywords([*raw, *extras], limit=10)
+
+
+def load_user_context(path: Path = CONTEXT_PATH) -> str:
+    try:
+        return path.read_text(encoding="utf-8").strip()[:4000] if path.is_file() else ""
+    except OSError:
+        return ""
 
 
 def with_previous(payload: dict, cached: dict | None) -> dict:
@@ -307,8 +327,15 @@ def write_json(path: Path, value) -> None:
 
 def ask_openai(payloads: list[dict], taken: list[str] | None = None) -> dict[str, dict]:
     """Returns {window id: {"tasks": [...], "name": "..."}} for the windows in payloads."""
+    user_ctx = load_user_context()
+    context_block = (
+        f"\n本地上下文与关键词规则（由用户维护的 context.md，生成 keywords 和 summary 时请遵循）：\n{user_ctx}\n"
+        if user_ctx
+        else ""
+    )
     prompt = PROMPT.format(
         max_name=window_namer.MAX_NAME_LENGTH,
+        context_block=context_block,
         taken=", ".join(sorted(taken or [])) or "(none)",
         windows=json.dumps(payloads, ensure_ascii=False, indent=1),
     )
@@ -451,7 +478,7 @@ def build_board(windows: list[Window], cache: dict, now: float, allow_llm: bool,
                     task["changed_at"] = int(now)
                 else:
                     task["change"], task["changed_at"] = old.get("change", ""), old.get("changed_at", 0)
-                task["keywords"] = clean_keywords([*(task.get("keywords") or []), *(old.get("keywords") or [])])
+                task["keywords"] = enrich_window_keywords(window, [*(task.get("keywords") or []), *(old.get("keywords") or [])])
             entry = {**cache.get(window_id, {}), "hash": reply.get("_hash", contexts.get(window_id, "")), "at": int(now), "state": window.state, "tasks": tasks}
             if reasons.get(window_id) == "fast":
                 entry["fast_at"] = int(now)
@@ -467,7 +494,7 @@ def build_board(windows: list[Window], cache: dict, now: float, allow_llm: bool,
     rows = []
     for window in windows:
         cached = cache.get(window.id, {})
-        tasks = [{**t, "keywords": clean_keywords(t.get("keywords", []))} if "keywords" in t else t for t in cached.get("tasks", [])]
+        tasks = [{**t, "keywords": enrich_window_keywords(window, t.get("keywords", []))} if "keywords" in t else t for t in cached.get("tasks", [])]
         rows.append({
             "id": window.id,
             "index": window.index,

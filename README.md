@@ -206,7 +206,7 @@ def
 
 - `<prefix> Ctrl+p`: pin or unpin the current window; its window number is underlined in the status bar.
 - `<prefix> g` (or `w`): the original fzf window/pane tree. `Ctrl+S` cycles
-  `All → Pinned → Completed`; the prompt names the current view.
+  `All → Pinned → Working → Completed`; the prompt names the current view.
   Search stays within that view; switching views keeps the query. `↑`/`↓` select windows,
   `Tab`/`Shift+Tab` cycle panes, and `Alt+p` toggles pin without closing the picker.
   Default order: attention → working → idle → completed, with pins first within each state.

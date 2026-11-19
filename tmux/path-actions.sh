@@ -15,7 +15,7 @@ usage() {
   cat <<'EOF'
 Usage: path-actions.sh [options] [path]
 
-Select a file or directory, then copy its path or open it with Neovim.
+Select a file or directory, then copy its path or open it with Neovim or Finder.
 
 Options:
   --cwd DIR          Resolve relative paths from DIR
@@ -444,6 +444,9 @@ choose_action() {
         'copy as Finder file'
       )
     fi
+    if [[ "$OSTYPE" == darwin* ]]; then
+      actions+=('open with Finder')
+    fi
   fi
   printf '%s\n' "${actions[@]}" |
     FZF_DEFAULT_OPTS="" fzf \
@@ -459,6 +462,7 @@ if [[ -z "$action" ]]; then
   selected_action="$(choose_action)" || exit 0
   case "$selected_action" in
     'open in browser') action="open_browser" ;;
+    'open with Finder') action="open_finder" ;;
     'replace in current window nvim') action="replace_window_nvim" ;;
     'copy absolute path') action="copy_absolute" ;;
     'copy relative path') action="copy_relative" ;;
@@ -470,6 +474,13 @@ if [[ -z "$action" ]]; then
 fi
 
 case "$action" in
+  open_finder)
+    if [[ -d "$absolute_path" ]]; then
+      open -a Finder "$absolute_path"
+    else
+      open -R "$absolute_path"
+    fi
+    ;;
   open_browser)
     open_in_browser
     ;;

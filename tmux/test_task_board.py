@@ -38,6 +38,15 @@ class ClassifyTests(unittest.TestCase):
         raw = ["pigeon", "agy", "Antigravity", "tmux pane", "后台续聊", "44 项测试", "ccca3d6", "MR 443", "Pigeon"]
         self.assertEqual(tb.clean_keywords(raw), ["pigeon", "MR 443"])
 
+    def test_enrich_window_keywords_adds_calle_and_branch(self):
+        w = window()
+        w.panes.append(tb.Pane("%1", True, "codex", "/work/s-eleven-mono/services/seleven-mcp", "t", "codex",
+                               repo="s-eleven-mono", branch="feat/calle-evals/phase1"))
+        self.assertEqual(
+            tb.enrich_window_keywords(w, ["Evals"]),
+            ["Evals", "call-e", "feat/calle-evals/phase1"],
+        )
+
 
 class ThrottleTests(unittest.TestCase):
     def window(self, badge):

@@ -17,6 +17,9 @@
 - `~/.vimrc` -> `dotfiles/vim/.vimrc`
 - `~/.gitconfig` -> `dotfiles/git/.gitconfig`
 - `~/.tmux.conf` -> `dotfiles/tmux/.tmux.conf`
+- `~/.codex/AGENTS.md` -> `dotfiles/.agents/AGENTS.md`
+- `~/.claude/CLAUDE.md` -> `dotfiles/.agents/AGENTS.md`
+- `~/.gemini/GEMINI.md` -> `dotfiles/.agents/AGENTS.md`
 - `~/.config/alacritty/alacritty.toml` -> `dotfiles/alacritty/alacritty.toml`
 - `~/.config/btop/themes` -> `dotfiles/btop/themes`
 - `~/.config/ghostty/config` -> `dotfiles/ghostty/config` on macOS

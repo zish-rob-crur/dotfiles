@@ -26,6 +26,18 @@ class PaletteTests(unittest.TestCase):
         self.assertEqual(run.call_args.args[0][-4:], ['--target', '@12', '--client', '/dev/test'])
 
     @patch.object(palette.subprocess, 'run')
+    def test_preview_actions_dispatch_without_confirmation(self, run):
+        palette.dispatch('preview-unread', '/dev/test', '@12')
+        self.assertIn('agent_preview', ' '.join(run.call_args.args[0]))
+
+        palette.dispatch('completed-list', '/dev/test', '@12')
+        self.assertEqual(run.call_args.args[0][:3], ['tmux', 'run-shell', '-b'])
+        self.assertIn('--view completed', run.call_args.args[0][3])
+
+        palette.dispatch('ack-all', '/dev/test', '@12')
+        self.assertEqual(run.call_args.args[0][-1], 'ack-all')
+
+    @patch.object(palette.subprocess, 'run')
     def test_unknown_action_never_executes(self, run):
         with self.assertRaises(ValueError):
             palette.dispatch('restart-all; bad-command', '/dev/test', '@12')

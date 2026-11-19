@@ -14,9 +14,10 @@ view_file="$(dirname "$start")/view"
 view=all
 [[ ! -f "$view_file" ]] || view=$(cat "$view_file")
 case "$view" in
-  pinned) label=Pinned; next=Completed; tabs=$'All  ·  \033[1;36m[Pinned]\033[0m  ·  Completed' ;;
-  completed) label=Completed; next=All; tabs=$'All  ·  Pinned  ·  \033[1;36m[Completed]\033[0m' ;;
-  *) label=All; next=Pinned; tabs=$'\033[1;36m[All]\033[0m  ·  Pinned  ·  Completed' ;;
+  pinned) label=Pinned; next=Working; tabs=$'All  ·  \033[1;36m[Pinned]\033[0m  ·  Working  ·  Completed' ;;
+  working) label=Working; next=Completed; tabs=$'All  ·  Pinned  ·  \033[1;36m[Working]\033[0m  ·  Completed' ;;
+  completed) label=Completed; next=All; tabs=$'All  ·  Pinned  ·  Working  ·  \033[1;36m[Completed]\033[0m' ;;
+  *) label=All; next=Pinned; tabs=$'\033[1;36m[All]\033[0m  ·  Pinned  ·  Working  ·  Completed' ;;
 esac
 printf -v header '%s    Ctrl+S → %s\nEnter: go · ↑↓: windows · Tab: panes · Alt+P: pin · Ctrl+/: preview · Ctrl+O: focus only · Ctrl+G: this client' "$tabs" "$next"
 if [[ "${4-}" == --header ]]; then

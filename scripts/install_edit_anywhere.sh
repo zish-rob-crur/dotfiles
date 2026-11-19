@@ -166,6 +166,8 @@ link_path "${DOTFILES_REPO}/edit-anywhere/nvim" "${HOME}/.local/share/edit-anywh
 link_path "${DOTFILES_REPO}/hammerspoon/init.lua" "${HOME}/.hammerspoon/init.lua"
 link_path "${DOTFILES_REPO}/hammerspoon/edit_anywhere.lua" "${HOME}/.hammerspoon/edit_anywhere.lua"
 link_path "${DOTFILES_REPO}/hammerspoon/task_board.lua" "${HOME}/.hammerspoon/task_board.lua"
+link_path "${DOTFILES_REPO}/hammerspoon/agent_preview.lua" "${HOME}/.hammerspoon/agent_preview.lua"
+ensure_mode 755 "${DOTFILES_REPO}/tmux/agent_preview.py"
 link_path "${DOTFILES_REPO}/hammerspoon/neovide_window.lua" "${HOME}/.hammerspoon/neovide_window.lua"
 link_path "${DOTFILES_REPO}/hammerspoon/scratchpad.lua" "${HOME}/.hammerspoon/scratchpad.lua"
 link_path "${DOTFILES_REPO}/hammerspoon/remote_image_paste.lua" "${HOME}/.hammerspoon/remote_image_paste.lua"

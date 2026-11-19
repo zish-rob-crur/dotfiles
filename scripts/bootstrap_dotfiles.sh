@@ -217,10 +217,14 @@ link_path "${DOTFILES_REPO}/alacritty/alacritty.toml" "${HOME}/.config/alacritty
 link_path "${DOTFILES_REPO}/btop/themes" "${HOME}/.config/btop/themes"
 link_path "${DOTFILES_REPO}/bin/nvim-agent" "${HOME}/.local/bin/nvim-agent"
 link_path "${DOTFILES_REPO}/fzf_scripts/ssh-fzf.sh" "${HOME}/.local/bin/ssh-fzf"
+link_path "${DOTFILES_REPO}/.agents/AGENTS.md" "${HOME}/.codex/AGENTS.md"
+link_path "${DOTFILES_REPO}/.agents/AGENTS.md" "${HOME}/.claude/CLAUDE.md"
+link_path "${DOTFILES_REPO}/.agents/AGENTS.md" "${HOME}/.gemini/GEMINI.md"
 ensure_executable "${DOTFILES_REPO}/btop/auto-theme.sh"
 ensure_executable "${DOTFILES_REPO}/tmux/assistant-launcher.sh"
 ensure_executable "${DOTFILES_REPO}/tmux/assistant-spymux.sh"
 ensure_executable "${DOTFILES_REPO}/tmux/restart-assistant-panes.py"
+ensure_executable "${DOTFILES_REPO}/tmux/agent_preview.py"
 
 if [ "$(uname -s)" = "Darwin" ]; then
     link_path "${DOTFILES_REPO}/ghostty/config" "${HOME}/.config/ghostty/config"

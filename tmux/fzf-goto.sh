@@ -19,13 +19,14 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 focus_script="${script_dir}/focus-ghostty-window.sh"
 
-current_client="" current_session="" current_group="" current_window_id=""
+current_client="" current_session="" current_group="" current_window_id="" initial_view=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --client) current_client="${2:-}"; shift 2 ;;
     --session) current_session="${2:-}"; shift 2 ;;
     --session-group) current_group="${2:-}"; shift 2 ;;
     --window-id) current_window_id="${2:-}"; shift 2 ;;
+    --view) initial_view="${2:-}"; shift 2 ;;
     *) shift ;;
   esac
 done
@@ -67,10 +68,24 @@ command -v fzf-tmux >/dev/null 2>&1 || { tmux display-message "fzf-tmux not foun
 printf -v step '%q' "${script_dir}/goto_step.sh"
 printf -v map '%q' "${state_dir}/windows"
 printf -v search '%q ' python3 "${script_dir}/goto_search.py" --state-dir "$state_dir" --window-id "$current_window_id"
+prompt_label="All"
+if [[ -n "$initial_view" ]]; then
+  entries="$(python3 "${script_dir}/goto_search.py" --state-dir "$state_dir" --window-id "$current_window_id" --view "$initial_view")"
+  case "$initial_view" in
+    pinned) prompt_label="Pinned" ;;
+    working) prompt_label="Working" ;;
+    completed) prompt_label="Completed" ;;
+    *) prompt_label="All" ;;
+  esac
+  if [[ -z "$entries" ]]; then
+    [[ "$initial_view" == "completed" ]] && tmux display-message "No unread completed agent windows" 2>/dev/null || true
+    exit 0
+  fi
+fi
 printf -v preview "printf '\\033[2m%%s\\033[0m\\n\\033[1;36mKeywords:\\033[0m %%s\\n\\n' %s %s; tmux capture-pane -ep -S -60 -t %s" '{14}' '{13}' '{6}'
 header="$("${script_dir}/goto_cursor.sh" '' "$state_dir/start" "$state_dir/windows" --header)"
 out="$(fzf-tmux "${popup[@]}" -- --ansi --disabled --no-sort --track --id-nth=1,2 --layout=reverse --no-multi \
-  --color="$colors" --highlight-line --prompt="All > " \
+  --color="$colors" --highlight-line --prompt="${prompt_label} > " \
   --delimiter=$'\t' --with-nth=3 --expect=ctrl-o,ctrl-g \
   --header="$header" \
   --bind "ctrl-s:reload($search --cycle-view --query {q})" \

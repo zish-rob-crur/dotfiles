@@ -7,6 +7,9 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parent
 ACTIONS = [
+    ('preview-unread', '󰄬  Preview unread agent responses (HUD)'),
+    ('completed-list', '  Browse completed agent windows'),
+    ('ack-all', '󰎟  Mark all completed agents as read'),
     ('pin', '󰐃  Pin / Unpin current window'),
     ('restart-all', '  Restart all agents — Codex + Claude, all sessions'),
     ('restart-codex', '  Restart Codex agents — all sessions'),
@@ -16,7 +19,16 @@ ACTIONS = [
 
 
 def dispatch(action, client, window):
-    if action == 'pin':
+    if action == 'preview-unread':
+        subprocess.run(['/opt/homebrew/bin/hs', '-c', 'require("agent_preview").toggle_interactive()'], check=True)
+    elif action == 'completed-list':
+        command = shlex.join([
+            str(ROOT / 'fzf-goto.sh'), '--view', 'completed', '--client', client, '--window-id', window,
+        ])
+        subprocess.run(['tmux', 'run-shell', '-b', command], check=True)
+    elif action == 'ack-all':
+        subprocess.run(['python3', str(ROOT / 'agent_preview.py'), 'ack-all'], check=True)
+    elif action == 'pin':
         subprocess.run(['python3', str(ROOT / 'window_pin.py'), '--target', window, '--client', client], check=True)
     elif action in {'restart-all', 'restart-codex', 'restart-claude'}:
         tool = action.removeprefix('restart-')
