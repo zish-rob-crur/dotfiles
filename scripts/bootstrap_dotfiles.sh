@@ -100,13 +100,21 @@ ensure_git_repo() {
 link_path() {
     local src="$1"
     local dst="$2"
+    local dst_dir
 
     if [ ! -e "${src}" ]; then
         echo "Skip missing source: ${src}"
         return 0
     fi
 
-    run mkdir -p "$(dirname "${dst}")"
+    dst_dir="$(dirname "${dst}")"
+    run mkdir -p "${dst_dir}"
+
+    # A linked parent directory can make both paths refer to the same entry.
+    if [ "${src##*/}" = "${dst##*/}" ] && [ "$(dirname "${src}")" -ef "${dst_dir}" ]; then
+        echo "Already linked through parent directory: ${dst}"
+        return 0
+    fi
 
     if [ -L "${dst}" ] && [ "$(readlink "${dst}")" = "${src}" ]; then
         echo "Already linked: ${dst}"
