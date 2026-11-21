@@ -150,8 +150,9 @@ def main(argv: list[str]) -> int:
         panes.setdefault(row[0], []).append(row[1:])
 
     out = []
+    pane_entries = []
 
-    def emit(kind, id_, display, window_id, pane_id, window_index, pane_index, search="", kw="", meta=""):
+    def emit(kind, id_, display, window_id, pane_id, window_index, pane_index, search="", kw="", meta="", output=out):
         if window_id == args.window_id:
             state, target = "CURRENT", (args.session, args.client, "")
         elif window_id in visible:
@@ -159,7 +160,7 @@ def main(argv: list[str]) -> int:
         else:
             state, target = "NORMAL", (args.session, args.client, "")
         fields = [kind, id_, display, state, window_id, pane_id, *target, window_index, pane_index, search, kw or "(none)", meta or path]
-        out.append("\t".join(f.replace("\t", " ") or "-" for f in fields))
+        output.append("\t".join(f.replace("\t", " ") or "-" for f in fields))
 
     windows = rows(["list-windows", "-t", args.session, "-F", FS.join(
         ["#{window_id}", "#{window_index}", "#{window_name}", "#{@codex-badge}", "#{pane_id}", "#{pane_current_path}", "#{@focus-pin}"])], 7)
@@ -177,6 +178,9 @@ def main(argv: list[str]) -> int:
         for pid, pindex, cmd, title, stitle, ppath in panes.get(window_id, []):
             cmd = clean_command(cmd)
             text = pane_text(cmd, title, stitle, ppath, tasks.get(pid, ""))
+            if args.state_dir:
+                emit("P", pid, f"{pid}  {index}.{pindex}  {name}  {cmd}", window_id, pid, index, pindex,
+                     ppath, keywords.get(pid, ""), ppath, output=pane_entries)
             if text or cmd not in SHELLS:
                 kw = keywords.get(pid, "")
                 search = search_suffix(title, stitle, ppath, wbranch, kw)
@@ -202,6 +206,7 @@ def main(argv: list[str]) -> int:
                      "completed": window_sort_key(row, board_windows, visible, args.window_id)[0] == 3}
             for row in windows
         }, ensure_ascii=False))
+        (args.state_dir / "pane-entries").write_text("\n".join(pane_entries))
         (args.state_dir / "entries").write_text("\n".join(out) + "\n")
         window_rows = [(i, row.split('\t')) for i, row in enumerate(out, 1) if row.startswith('W\t')]
         (args.state_dir / 'windows').write_text(''.join(f'{fields[9]}\t{i}\n' for i, fields in window_rows))

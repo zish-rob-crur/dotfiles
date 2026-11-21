@@ -53,7 +53,13 @@ hs = {
       end,
     },
   },
-  urlevent = { bind = function(name, fn) urls[name] = fn end },
+  urlevent = {
+    bind = function(name, fn) urls[name] = fn end,
+    openURL = function(u) urls.lastOpened = u end,
+  },
+  pasteboard = {
+    setContents = function(txt) urls.copied = txt end,
+  },
   pathwatcher = {
     new = function(_, fn)
       watcher_cb = fn
@@ -154,8 +160,8 @@ assert(#tasks == 2)
 
 tasks[2].complete(0, encode({
   unread = {
-    { key = "/tmp/sock:%2", tmux_socket = "/tmp/sock", session_name = "main", window_id = "@2", pane_id = "%2", unread = true, completed_at_ns = 200, compact_html = "new-2", full_html = "full-2" },
-    { key = "/tmp/sock:%1", tmux_socket = "/tmp/sock", session_name = "main", window_id = "@1", pane_id = "%1", unread = true, completed_at_ns = 100, compact_html = "old", full_html = "full-1" },
+    { key = "/tmp/sock:%2", tmux_socket = "/tmp/sock", session_name = "main", window_id = "@2", pane_id = "%2", cwd = "/tmp/proj", unread = true, completed_at_ns = 200, compact_html = "new-2", full_html = "full-2", plain_text = "plain-2" },
+    { key = "/tmp/sock:%1", tmux_socket = "/tmp/sock", session_name = "main", window_id = "@1", pane_id = "%1", cwd = "/tmp/proj", unread = true, completed_at_ns = 100, compact_html = "old", full_html = "full-1", plain_text = "plain-1" },
   },
   recent = {},
 }), "", true)
@@ -172,19 +178,34 @@ assert(webview_instance.visible == true)
 webview_instance.ucc.cb({ body = { action = "ready" } })
 assert(#webview_instance.evals == 1)
 
--- Pressing hotkey promotes compact toast -> interactive modal (keeps compact size by default).
+-- Passive toast auto-rotates across the 2 unread items every 8s (2 passes = 4 ticks) before hiding.
+assert(timers[#timers].delay == 8)
+timers[#timers].fn() -- tick 1: 1/2 -> 2/2
+assert(preview.status().visible == true and preview.status().index == 2)
+timers[#timers].fn() -- tick 2: 2/2 -> 1/2
+assert(preview.status().visible == true and preview.status().index == 1)
+
+-- Pressing hotkey promotes compact toast -> interactive modal (keeps compact 430x290 size by default).
 hotkeys["u"]()
 st = preview.status()
 assert(st.expanded == false and st.interactive == true and modal_instance.entered == true)
-assert(webview_instance:frame().w == 360 and webview_instance:frame().h == 190)
+assert(webview_instance:frame().w == 430 and webview_instance:frame().h == 290)
 
--- Pressing 'e' expands and collapses between 520x360 and 360x190.
+-- Pressing 'e' expands and collapses between 580x450 and 430x290.
 modal_instance.bindings["e"]()
 st = preview.status()
-assert(st.expanded == true and webview_instance:frame().w == 520 and webview_instance:frame().h == 360)
+assert(st.expanded == true and webview_instance:frame().w == 580 and webview_instance:frame().h == 450)
 modal_instance.bindings["e"]()
 st = preview.status()
-assert(st.expanded == false and webview_instance:frame().w == 360 and webview_instance:frame().h == 190)
+assert(st.expanded == false and webview_instance:frame().w == 430 and webview_instance:frame().h == 290)
+
+-- Pressing 'y' copies plain_text to clipboard; clicking URL/path links routes properly.
+modal_instance.bindings["y"]()
+assert(urls.copied == "plain-2")
+webview_instance.ucc.cb({ body = { action = "open-url", url = "https://example.com/report" } })
+assert(urls.lastOpened == "https://example.com/report")
+webview_instance.ucc.cb({ body = { action = "open-path", path = "artifacts/report.html" } })
+assert(tasks[#tasks].args[2] == "open-path" and tasks[#tasks].args[6] == "artifacts/report.html")
 
 -- Press 'r' (Mark Read) -> sends ack, switches cleanly to remaining unread item %1.
 modal_instance.bindings["r"]()

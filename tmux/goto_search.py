@@ -247,9 +247,14 @@ def main():
         views = ('all', 'pinned', 'working', 'completed')
         view = views[(views.index(view) + 1) % len(views)]
         view_file.write_text(view)
-    source = (args.state_dir/'entries').read_text()
+    pane_lookup = re.fullmatch(r"%[0-9]+", args.query)
+    source = (args.state_dir / ('pane-entries' if pane_lookup else 'entries')).read_text()
     metadata = json.loads((args.state_dir/'window-meta.json').read_text()) if view != 'all' else {}
-    rows = filter_rows(view_source(source, metadata, view), args.query)
+    source = view_source(source, metadata, view)
+    if pane_lookup:
+        rows = [row for row in source.splitlines() if row.split('\t', 2)[1] == args.query]
+    else:
+        rows = filter_rows(source, args.query)
     windows = [(i, r.split('\t')) for i, r in enumerate(rows, 1) if r.startswith('W\t')]
     (args.state_dir/'windows').write_text(''.join(f'{r[9]}\t{i}\n' for i,r in windows))
     (args.state_dir/'start').write_text(str(next((i for i,r in windows if r[4] == args.window_id), 1)))

@@ -15,7 +15,7 @@ usage() {
   cat <<'EOF'
 Usage: path-actions.sh [options] [path]
 
-Select a file or directory, then copy its path or open it with Neovim or Finder.
+Select a file or directory, then copy its path or open it with Neovim, VS Code, Zed, or Finder.
 
 Options:
   --cwd DIR          Resolve relative paths from DIR
@@ -427,23 +427,17 @@ choose_action() {
       actions+=('open in browser')
     fi
     if find_window_nvim_pane >/dev/null 2>&1; then
-      actions+=(
-        'replace in current window nvim'
-        'new tmux pane + nvim'
-        'new tmux window + nvim'
-        'copy absolute path'
-        'copy relative path'
-        'copy as Finder file'
-      )
-    else
-      actions+=(
-        'new tmux pane + nvim'
-        'new tmux window + nvim'
-        'copy absolute path'
-        'copy relative path'
-        'copy as Finder file'
-      )
+      actions+=('replace in current window nvim')
     fi
+    actions+=(
+      'new tmux pane + nvim'
+      'new tmux window + nvim'
+      'open with VS Code'
+      'open with Zed'
+      'copy absolute path'
+      'copy relative path'
+      'copy as Finder file'
+    )
     if [[ "$OSTYPE" == darwin* ]]; then
       actions+=('open with Finder')
     fi
@@ -462,6 +456,8 @@ if [[ -z "$action" ]]; then
   selected_action="$(choose_action)" || exit 0
   case "$selected_action" in
     'open in browser') action="open_browser" ;;
+    'open with VS Code') action="open_vscode" ;;
+    'open with Zed') action="open_zed" ;;
     'open with Finder') action="open_finder" ;;
     'replace in current window nvim') action="replace_window_nvim" ;;
     'copy absolute path') action="copy_absolute" ;;
@@ -474,6 +470,18 @@ if [[ -z "$action" ]]; then
 fi
 
 case "$action" in
+  open_vscode)
+    code "$absolute_path" || fail "Could not open path in VS Code"
+    ;;
+  open_zed)
+    if command -v zed >/dev/null 2>&1; then
+      zed "$absolute_path" || fail "Could not open path in Zed"
+    elif [[ "$OSTYPE" == darwin* ]]; then
+      open -a Zed "$absolute_path" || fail "Could not open path in Zed. Check that Zed is installed."
+    else
+      fail "zed is not installed"
+    fi
+    ;;
   open_finder)
     if [[ -d "$absolute_path" ]]; then
       open -a Finder "$absolute_path"

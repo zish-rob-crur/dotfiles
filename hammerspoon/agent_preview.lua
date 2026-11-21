@@ -12,12 +12,15 @@ local BACKEND = HOME .. "/GitHubRepos/dotfiles/tmux/agent_preview.py"
 local PYTHON = "/opt/homebrew/bin/python3"
 local PATH_ENV = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 local HOTKEY = { { "cmd", "shift" }, "u" }
-local AUTOHIDE_SECONDS = 8
+local AUTOHIDE_SECONDS = 18
+local ROTATE_SECONDS = 8
+local ROTATE_PASSES = 2
+local MAX_ROTATE_TICKS = 8
 local DEBOUNCE_SECONDS = 0.12
 local TOP_MARGIN = 52
 local RIGHT_MARGIN = 14
-local COMPACT_SIZE = { w = 360, h = 190 }
-local EXPANDED_SIZE = { w = 520, h = 360 }
+local COMPACT_SIZE = { w = 430, h = 290 }
+local EXPANDED_SIZE = { w = 580, h = 450 }
 
 local state = {
   started = false,
@@ -31,6 +34,8 @@ local state = {
   mode = "unread", -- "unread" | "recent"
   items = {},
   index = 1,
+  remaining_ticks = 0,
+  progress_seq = 0,
   seen_ns = {},
   active_tasks = {},
   snapshot_job = nil,
@@ -77,10 +82,10 @@ local HTML = [[<!doctype html>
   }
   #card.interactive { border-color: var(--green); }
   .header {
-    flex: none; padding: 6px 8px 5px; background: var(--header);
+    flex: none; padding: 6px 8px 0; background: var(--header);
     border-bottom: 1px solid var(--border); user-select: none;
   }
-  .top-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .top-row { display: flex; align-items: center; gap: 5px; min-width: 0; }
   .dot { font-weight: 700; flex: none; color: var(--green); }
   .dot.recent { color: var(--muted); }
   .title {
@@ -88,39 +93,59 @@ local HTML = [[<!doctype html>
     overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0;
   }
   .badge {
-    flex: none; font-size: 10px; padding: 1px 6px; border-radius: 6px;
+    flex: none; font-size: 9.5px; padding: 1px 5px; border-radius: 5px;
     background: #2f4145; color: var(--blue);
   }
   .badge.codex { background: #34412f; color: var(--green); }
   .badge.claude { background: #47362e; color: var(--peach); }
   .badge.antigravity { background: #4a4330; color: var(--yellow); }
-  .age { flex: none; font-size: 10px; color: var(--muted); }
-  .nav { display: inline-flex; align-items: center; gap: 2px; flex: none; font-size: 11px; color: var(--muted); }
-  .nav[hidden], .meta-row[hidden], .footer[hidden], [hidden] { display: none !important; }
-  .meta-row {
-    margin-top: 2px; font-size: 10px; color: var(--muted);
+  .age { flex: none; font-size: 9.5px; color: var(--muted); white-space: nowrap; }
+  .nav { display: inline-flex; align-items: center; gap: 1px; flex: none; font-size: 10px; color: var(--text); font-weight: 600; }
+  .nav[hidden], .progress-track[hidden], .footer[hidden], [hidden] { display: none !important; }
+  .sub-row {
+    display: flex; align-items: center; gap: 5px; margin: 4px 0 5px; min-width: 0;
+  }
+  .meta-inline {
+    flex: 1; min-width: 0; font-size: 10px; color: var(--muted);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .actions { display: flex; align-items: center; gap: 5px; margin-top: 4px; }
-  .spacer { flex: 1; }
   button {
     font: inherit; font-size: 10px; line-height: 1.2; color: var(--text);
     background: var(--btn); border: 1px solid var(--border); border-radius: 4px;
-    padding: 2px 6px; cursor: pointer; white-space: nowrap;
+    padding: 2px 6px; cursor: pointer; white-space: nowrap; flex: none;
   }
   button:hover { background: var(--btn-hover); }
   button:disabled { opacity: 0.45; cursor: default; }
   button.primary { background: var(--green); border-color: var(--green); color: #1e2326; font-weight: 600; }
   button.primary:hover { background: #b8cf93; }
-  button.icon { padding: 2px 6px; border-color: transparent; background: transparent; color: var(--muted); }
+  button.copied { border-color: var(--green); color: var(--green); }
+  button.icon { padding: 1px 5px; border-color: transparent; background: transparent; color: var(--muted); }
   button.icon:hover { background: var(--btn); color: var(--text); }
+  .progress-track {
+    height: 1.5px; margin: 0 -8px; background: transparent; overflow: hidden;
+  }
+  .progress-bar {
+    height: 100%; width: 100%; background: rgba(167, 192, 128, 0.55);
+    transform-origin: left center;
+  }
+  @keyframes dwell-shrink { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+  #card:hover .progress-bar { animation-play-state: paused !important; }
   #output {
-    flex: 1; min-height: 0; margin: 0; padding: 6px 8px;
+    flex: 1; min-height: 0; margin: 0; padding: 6px 9px;
     overflow-y: auto; overflow-x: hidden;
     white-space: pre-wrap; word-break: break-word;
-    font: 11px/1.42 "Maple Mono NF CN", "JetBrainsMono Nerd Font", Menlo, monospace;
+    font: 11px/1.45 "Maple Mono NF CN", "JetBrainsMono Nerd Font", Menlo, monospace;
     color: var(--text);
   }
+  #output.scrolled-down {
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0px, black 14px);
+    mask-image: linear-gradient(to bottom, transparent 0px, black 14px);
+  }
+  a.out-link {
+    color: inherit; text-decoration: underline;
+    text-decoration-style: dotted; text-underline-offset: 2px; cursor: pointer;
+  }
+  a.out-link:hover { text-decoration-style: solid; filter: brightness(1.18); }
   #output::-webkit-scrollbar { width: 6px; }
   #output::-webkit-scrollbar-track { background: transparent; }
   #output::-webkit-scrollbar-thumb { background: #4f585e; border-radius: 3px; }
@@ -138,22 +163,23 @@ local HTML = [[<!doctype html>
       <span id="source" class="badge"></span>
       <span id="age" class="age"></span>
       <span id="nav" class="nav" hidden>
-        <button type="button" class="icon" data-action="prev" title="Previous">‹</button>
+        <button type="button" class="icon" data-action="prev" title="Previous ([)">‹</button>
         <span id="counter"></span>
-        <button type="button" class="icon" data-action="next" title="Next">›</button>
+        <button type="button" class="icon" data-action="next" title="Next (])">›</button>
       </span>
-    </div>
-    <div id="meta" class="meta-row" hidden></div>
-    <div class="actions">
-      <button type="button" data-action="toggle-expand" id="btn-expand">Expand</button>
-      <span class="spacer"></span>
-      <button type="button" data-action="ack" id="btn-ack">Mark Read</button>
-      <button type="button" data-action="open" id="btn-open" class="primary">Open</button>
       <button type="button" data-action="hide" class="icon" title="Hide (keep unread badge)">×</button>
     </div>
+    <div class="sub-row">
+      <span id="meta" class="meta-inline"></span>
+      <button type="button" data-action="copy" id="btn-copy" title="Copy response (y)">Copy</button>
+      <button type="button" data-action="toggle-expand" id="btn-expand">Expand</button>
+      <button type="button" data-action="ack" id="btn-ack">Mark Read</button>
+      <button type="button" data-action="open" id="btn-open" class="primary">Open</button>
+    </div>
+    <div id="progress-track" class="progress-track" hidden><div id="progress-bar" class="progress-bar"></div></div>
   </div>
   <pre id="output"></pre>
-  <div id="footer" class="footer" hidden>j/k scroll · e expand · [/] switch · r read · Enter open · Esc hide</div>
+  <div id="footer" class="footer" hidden>j/k scroll · e expand · y copy · [/] switch · r read · Enter open · Esc hide</div>
 </div>
 <script>
   const post = (msg) => {
@@ -167,12 +193,27 @@ local HTML = [[<!doctype html>
   const navEl = document.getElementById("nav");
   const counterEl = document.getElementById("counter");
   const metaEl = document.getElementById("meta");
+  const copyBtn = document.getElementById("btn-copy");
   const expandBtn = document.getElementById("btn-expand");
   const ackBtn = document.getElementById("btn-ack");
+  const progressTrack = document.getElementById("progress-track");
+  const progressBar = document.getElementById("progress-bar");
   const outputEl = document.getElementById("output");
   const footerEl = document.getElementById("footer");
 
+  const syncScrollMask = () => {
+    outputEl.classList.toggle("scrolled-down", outputEl.scrollTop > 4);
+  };
+  outputEl.addEventListener("scroll", syncScrollMask, { passive: true });
+
   document.addEventListener("click", (ev) => {
+    const link = ev.target.closest("a.out-link");
+    if (link) {
+      ev.preventDefault();
+      if (link.dataset.url) post({ action: "open-url", url: link.dataset.url });
+      else if (link.dataset.path) post({ action: "open-path", path: link.dataset.path });
+      return;
+    }
     const btn = ev.target.closest("button[data-action]");
     if (!btn || btn.disabled) return;
     post({ action: btn.dataset.action });
@@ -180,7 +221,19 @@ local HTML = [[<!doctype html>
   card.addEventListener("mouseenter", () => post({ action: "hover", inside: true }));
   card.addEventListener("mouseleave", () => post({ action: "hover", inside: false }));
 
+  let copyTimer = null;
+  window.flashCopied = () => {
+    copyBtn.textContent = "Copied ✓";
+    copyBtn.classList.add("copied");
+    if (copyTimer) clearTimeout(copyTimer);
+    copyTimer = setTimeout(() => {
+      copyBtn.textContent = "Copy";
+      copyBtn.classList.remove("copied");
+    }, 1200);
+  };
+
   let lastHtml = "";
+  let lastProgressSeq = -1;
   window.updateHud = (data) => {
     if (!data || !data.item) return;
     const item = data.item;
@@ -191,25 +244,36 @@ local HTML = [[<!doctype html>
     dot.classList.toggle("recent", !item.unread);
 
     const widx = item.window_index ? item.window_index + " " : "";
-    titleEl.textContent = widx + (item.window_name || item.session_name || item.pane_id || "");
+    const wtitle = widx + (item.window_name || item.session_name || item.pane_id || "");
+    titleEl.textContent = wtitle;
+    titleEl.title = wtitle;
 
     const src = item.source_label || "Agent";
     sourceEl.textContent = src;
     sourceEl.className = "badge " + src.toLowerCase();
-    ageEl.textContent = item.age || "";
+    ageEl.textContent = [item.duration, item.age].filter(Boolean).join(" · ");
 
     const total = Number(data.total || 1);
     navEl.hidden = total <= 1;
     counterEl.textContent = (data.index || 1) + "/" + total;
 
     const repoBranch = [item.repo, item.branch].filter(Boolean).join(":");
-    const metaParts = [repoBranch, item.summary].filter(Boolean);
-    metaEl.textContent = metaParts.join(" · ");
-    metaEl.hidden = metaParts.length === 0;
+    const summaryText = item.summary || repoBranch || "";
+    metaEl.textContent = summaryText;
+    metaEl.title = [repoBranch, item.summary].filter(Boolean).join(" · ");
 
     expandBtn.textContent = expanded ? "Collapse" : "Expand";
     ackBtn.hidden = !item.unread;
     footerEl.hidden = !interactive;
+
+    const dwell = (!interactive && Number(data.dwell_seconds) > 0) ? Number(data.dwell_seconds) : 0;
+    progressTrack.hidden = dwell <= 0;
+    if (dwell > 0 && data.progress_seq !== lastProgressSeq) {
+      lastProgressSeq = data.progress_seq;
+      progressBar.style.animation = "none";
+      void progressBar.offsetWidth;
+      progressBar.style.animation = "dwell-shrink " + dwell + "s linear forwards";
+    }
 
     const nextHtml = (expanded || interactive)
       ? (item.full_html || item.compact_html || "(no terminal output)")
@@ -223,6 +287,7 @@ local HTML = [[<!doctype html>
     if (data.reset_scroll || nearBottom) {
       outputEl.scrollTop = outputEl.scrollHeight;
     }
+    syncScrollMask();
   };
 
   window.scrollPreview = (dy) => {
@@ -287,8 +352,8 @@ local function target_frame(expanded)
   local sf = active_screen():frame()
   local w, h
   if expanded then
-    w = math.min(EXPANDED_SIZE.w, math.floor(sf.w * 0.38))
-    h = math.min(EXPANDED_SIZE.h, math.floor(sf.h * 0.46))
+    w = math.min(EXPANDED_SIZE.w, math.floor(sf.w * 0.42))
+    h = math.min(EXPANDED_SIZE.h, math.floor(sf.h * 0.55))
   else
     w = COMPACT_SIZE.w
     h = COMPACT_SIZE.h
@@ -322,24 +387,47 @@ local function push_view(reset_scroll)
     or (state.rendered_expanded ~= state.expanded)
   state.rendered_key = item.key
   state.rendered_expanded = state.expanded
+  local dwell = 0
+  if not state.interactive and state.visible then
+    dwell = (#state.items > 1) and ROTATE_SECONDS or AUTOHIDE_SECONDS
+  end
   local payload = {
     item = item,
     index = state.index,
     total = #state.items,
     expanded = state.expanded,
     interactive = state.interactive,
+    dwell_seconds = dwell,
+    progress_seq = state.progress_seq,
     reset_scroll = should_reset,
   }
   state.webview:evaluateJavaScript("window.updateHud(" .. hs.json.encode(payload) .. ")")
 end
 
+local function reset_dwell()
+  if #state.items > 1 then
+    state.remaining_ticks = math.min(MAX_ROTATE_TICKS, #state.items * ROTATE_PASSES)
+  else
+    state.remaining_ticks = 1
+  end
+end
+
 local function schedule_autohide()
   stop_autohide()
   if not state.visible or state.interactive or state.hovered then return end
-  state.autohide_timer = hs.timer.doAfter(AUTOHIDE_SECONDS, function()
+  if (state.remaining_ticks or 0) <= 0 then reset_dwell() end
+  state.progress_seq = (state.progress_seq or 0) + 1
+  local delay = (#state.items > 1) and ROTATE_SECONDS or AUTOHIDE_SECONDS
+  state.autohide_timer = hs.timer.doAfter(delay, function()
     state.autohide_timer = nil
-    if state.visible and not state.interactive and not state.hovered then
+    if not state.visible or state.interactive or state.hovered then return end
+    state.remaining_ticks = (state.remaining_ticks or 1) - 1
+    if state.remaining_ticks <= 0 or #state.items <= 1 then
       M.hide()
+    else
+      state.index = (state.index % #state.items) + 1
+      schedule_autohide()
+      push_view(true)
     end
   end)
 end
@@ -359,7 +447,20 @@ local function handle_message(msg)
     if state.visible then push_view(true) end
   elseif action == "hover" then
     state.hovered = body.inside == true
-    if state.hovered then stop_autohide() else schedule_autohide() end
+    if state.hovered then
+      stop_autohide()
+    else
+      schedule_autohide()
+      push_view(false)
+    end
+  elseif action == "copy" then
+    M.copy_current()
+  elseif action == "open-url" then
+    if type(body.url) == "string" and body.url:match("^https?://") then
+      hs.urlevent.openURL(body.url)
+    end
+  elseif action == "open-path" then
+    M.open_path(body.path)
   elseif action == "toggle-expand" then
     M.toggle_expand()
   elseif action == "ack" then
@@ -412,11 +513,12 @@ local function show_hud(interactive, expanded)
     exit_modal()
   end
   local wv = ensure_webview()
-  push_view(true)
-  wv:show()
   if not state.interactive then
+    reset_dwell()
     schedule_autohide()
   end
+  push_view(true)
+  wv:show()
 end
 
 function M.hide()
@@ -424,6 +526,7 @@ function M.hide()
   exit_modal()
   state.visible = false
   state.hovered = false
+  state.remaining_ticks = 0
   if state.webview then state.webview:hide() end
 end
 
@@ -553,6 +656,7 @@ local function apply_snapshot(data, mode)
       state.items = unread
       if newest_new then
         state.index = index_of_key(unread, newest_new.key) or 1
+        reset_dwell()
         schedule_autohide()
         push_view(true)
       else
@@ -625,22 +729,35 @@ end
 function M.toggle_expand()
   if not state.visible then return end
   state.expanded = not state.expanded
+  if not state.interactive then reset_dwell(); schedule_autohide() end
   push_view(true)
-  if not state.interactive then schedule_autohide() end
+end
+
+function M.copy_current()
+  local item = current_item()
+  if not item then return end
+  local text = item.plain_text or ""
+  if text ~= "" and hs.pasteboard and hs.pasteboard.setContents then
+    hs.pasteboard.setContents(text)
+  end
+  if state.visible and state.webview and state.page_ready then
+    state.webview:evaluateJavaScript("window.flashCopied && window.flashCopied()")
+  end
+  if not state.interactive then reset_dwell(); schedule_autohide(); push_view(false) end
 end
 
 function M.prev_item()
   if #state.items <= 1 then return end
   state.index = ((state.index - 2) % #state.items) + 1
+  if not state.interactive then reset_dwell(); schedule_autohide() end
   push_view(true)
-  if not state.interactive then schedule_autohide() end
 end
 
 function M.next_item()
   if #state.items <= 1 then return end
   state.index = (state.index % #state.items) + 1
+  if not state.interactive then reset_dwell(); schedule_autohide() end
   push_view(true)
-  if not state.interactive then schedule_autohide() end
 end
 
 function M.mark_read()
@@ -658,8 +775,15 @@ function M.mark_read()
   if #state.items == 0 then
     M.hide()
   else
+    if not state.interactive then reset_dwell(); schedule_autohide() end
     push_view(true)
-    if not state.interactive then schedule_autohide() end
+  end
+end
+
+function M.open_path(raw_path)
+  local item = current_item()
+  if item and type(raw_path) == "string" and raw_path ~= "" then
+    run_backend({ "open-path", "--cwd", item.cwd or "", "--path", raw_path })
   end
 end
 
@@ -698,6 +822,7 @@ local function build_modal()
   modal:bind({ "shift" }, "g", function() scroll_preview("bottom") end)
   modal:bind({}, "e", M.toggle_expand)
   modal:bind({}, "space", M.toggle_expand)
+  modal:bind({}, "y", M.copy_current)
   modal:bind({}, "]", M.next_item)
   modal:bind({}, "tab", M.next_item)
   modal:bind({}, "[", M.prev_item)

@@ -93,6 +93,59 @@ class AnsiToHtmlTests(unittest.TestCase):
         self.assertIn('<span style="color:#ff0000">x256</span>', rendered)
         self.assertNotIn("\033[", rendered)
 
+    def test_reflow_duration_window_name_and_linkify(self):
+        raw_lines = [
+            "  • 原始报告 (\033[32martifacts/voice-bot-event-\033[0m",
+            "    \033[32mrecurrence/olaf-2026-11-17/report.html\033[0m) 保留原件。",
+            "",
+            "  复现 36/88 → 88/88 还缺一份数据。那组静默实验使用了 11 个冻结检查点。Olaf 的分支里",
+            "  有重放代码和预期结果，但本地目录里没找到原始模型请求。",
+            "  详见 https://example.com/pr/42 与 Go/Python 或 origin/main。",
+            "  ```python",
+            "  x = 1",
+            "  y = 2",
+            "  ```",
+            "",
+            "  Worked for 1m 46s • 11:01",
+        ]
+        trimmed, duration = ap.extract_turn_duration(raw_lines)
+        self.assertEqual(duration, "1m 46s")
+        reflowed = ap.reflow_prose(trimmed)
+        plain = "\n".join(ap.strip_ansi(ln) for ln in reflowed)
+        self.assertIn("artifacts/voice-bot-event-recurrence/olaf-2026-11-17/report.html", plain)
+        self.assertIn("Olaf 的分支里有重放代码和预期结果", plain)
+        self.assertIn("x = 1\ny = 2", plain)
+        self.assertNotIn("Worked for", plain)
+
+        rendered = ap.ansi_to_html(reflowed)
+        self.assertIn('data-path="artifacts/voice-bot-event-recurrence/olaf-2026-11-17/report.html"', rendered)
+        self.assertIn('data-url="https://example.com/pr/42"', rendered)
+        self.assertNotIn('data-path="36/88"', rendered)
+        self.assertNotIn('data-path="Go/Python"', rendered)
+        self.assertNotIn('data-path="origin/main"', rendered)
+
+        self.assertEqual(ap.clean_window_name(" calle:voice-bot"), "calle:voice-bot")
+        self.assertEqual(ap.clean_window_name("dotfiles"), "dotfiles")
+
+    def test_open_local_path_routes_html_and_code(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            report = Path(tmp) / "artifacts" / "report.html"
+            report.parent.mkdir()
+            report.write_text("<h1>ok</h1>", encoding="utf-8")
+            script = Path(tmp) / "app.py"
+            script.write_text("print(1)\n", encoding="utf-8")
+
+            with patch.object(ap.subprocess, "run") as m_run:
+                self.assertTrue(ap.open_local_path(tmp, "artifacts/report.html"))
+                m_run.assert_called_once()
+                self.assertEqual(m_run.call_args.args[0], ["open", str(report.resolve())])
+
+            with patch.object(ap.shutil, "which", return_value="/opt/homebrew/bin/neovide"), \
+                 patch.object(ap.subprocess, "Popen") as m_popen:
+                self.assertTrue(ap.open_local_path(tmp, "app.py:12"))
+                m_popen.assert_called_once()
+                self.assertEqual(m_popen.call_args.args[0], ["/opt/homebrew/bin/neovide", str(script.resolve()), "+12"])
+
 
 class SnapshotAndAckTests(unittest.TestCase):
     def test_snapshot_orders_unread_and_skips_dead_or_working_panes(self):

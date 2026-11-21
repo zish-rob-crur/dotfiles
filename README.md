@@ -209,6 +209,7 @@ def
   `All → Pinned → Working → Completed`; the prompt names the current view.
   Search stays within that view; switching views keeps the query. `↑`/`↓` select windows,
   `Tab`/`Shift+Tab` cycle panes, and `Alt+p` toggles pin without closing the picker.
+  Enter `%42` to jump to pane ID 42, including an idle shell, or `42` for window number 42.
   Default order: attention → working → idle → completed, with pins first within each state.
   Search results retain relevance ordering. `Ctrl+/` toggles the original pane preview.
 - `<prefix> F` → search `Pin`: the same action via search.

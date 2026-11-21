@@ -8,9 +8,11 @@ import html
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -53,6 +55,21 @@ TUI_STATUS_RE = re.compile(
     re.IGNORECASE,
 )
 TUI_STATUS_CONT_RE = re.compile(r"(?:·\s*(?:~/|/|Context\s*$))", re.IGNORECASE)
+WORKED_FOR_RE = re.compile(
+    r"^[✻✳✶✽✢·✦✧•*\s]*(?:Worked|Baked|Churned|Cooked|Cogitated|Brewed|Thought)\s+for\s+"
+    r"(\d+[dhms](?:\s+\d+[dhms])*)(?:\s*[•·]\s*\d{1,2}:\d{2}(?::\d{2})?)?\s*$",
+    re.IGNORECASE,
+)
+WINDOW_ICON_PREFIX_RE = re.compile(r"^[^\w\u4e00-\u9fff\u3400-\u4dbf~./@-]+\s+")
+STRUCTURAL_START_RE = re.compile(
+    r"^(?:[•◦▪▸*\-+]|\d+[.)]|#{1,6})\s+|^(?:[›❯>]|```|~~~|\+\s+\d+\s+lines\b|Ran\s+)"
+)
+BOX_DRAWING_CHARS_RE = re.compile(r"[┌┐└┘├┤┬┴┼╭╮╰╯│┃═]")
+LINK_TOKEN_RE = re.compile(
+    r"(?P<url>https?://[^\s<>\"'`)\]]+)"
+    r"|(?<![A-Za-z0-9_:/<>=])(?P<path>(?:~/|\.\.?/|/|[A-Za-z0-9_.-]+/)[A-Za-z0-9_./@+-]*[A-Za-z0-9_/-](?::\d+(?::\d+)?)?)"
+)
+BROWSER_DOC_EXTS = {".html", ".htm", ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}
 
 # Standard ANSI 16 colors harmonized with Everforest Dark (#1e2326 / #272e33).
 ANSI_FG_COLORS = {
@@ -134,6 +151,213 @@ def trim_tui_footer(raw_text: str) -> list[str]:
     return lines if lines else fallback
 
 
+def clean_window_name(name: str) -> str:
+    return WINDOW_ICON_PREFIX_RE.sub("", name.strip()).strip() or name.strip()
+
+
+def extract_turn_duration(lines: list[str]) -> tuple[list[str], str]:
+    """Pop trailing 'Worked for 1m 46s • 11:01' line if prose remains above it."""
+    if not lines:
+        return lines, ""
+    last_plain = strip_ansi(lines[-1]).strip()
+    match = WORKED_FOR_RE.match(last_plain)
+    if not match:
+        return lines, ""
+    duration = re.sub(r"\s+", " ", match.group(1)).strip()
+    trimmed = lines[:-1]
+    while trimmed and not strip_ansi(trimmed[-1]).strip():
+        trimmed.pop()
+    return (trimmed if trimmed else lines), duration
+
+
+def _visual_width(text: str) -> int:
+    return sum(2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1 for ch in text)
+
+
+def _is_cjk_or_fullwidth(ch: str) -> bool:
+    cp = ord(ch)
+    return (
+        0x2E80 <= cp <= 0x9FFF
+        or 0x3400 <= cp <= 0x4DBF
+        or 0xF900 <= cp <= 0xFAFF
+        or 0xFF00 <= cp <= 0xFFEF
+    )
+
+
+def _lstrip_ansi_spaces(line: str, max_spaces: int | None = None) -> str:
+    """Drop up to max_spaces leading ASCII spaces while preserving leading ANSI codes."""
+    out: list[str] = []
+    pos = 0
+    removed = 0
+    done_stripping = False
+    while pos < len(line):
+        if not done_stripping:
+            seq = ANSI_ANY_RE.match(line, pos)
+            if seq:
+                out.append(seq.group(0))
+                pos = seq.end()
+                continue
+            if line[pos] == " " and (max_spaces is None or removed < max_spaces):
+                removed += 1
+                pos += 1
+                continue
+            done_stripping = True
+        out.append(line[pos:])
+        break
+    return "".join(out)
+
+
+def _is_structural_line(plain: str) -> bool:
+    stripped = plain.strip()
+    if not stripped:
+        return True
+    if STRUCTURAL_START_RE.match(stripped):
+        return True
+    if BOX_DRAWING_CHARS_RE.search(plain):
+        return True
+    if stripped.startswith(("|", "+ ", "- ", "@@ ", "$ ", "% ")):
+        return True
+    if re.fullmatch(r"[\s\-─━═_=*]{3,}", stripped):
+        return True
+    return False
+
+
+def _prev_allows_reflow(plain: str) -> bool:
+    stripped = plain.strip()
+    if not stripped:
+        return False
+    if re.match(r"^(?:#{1,6}\s+|[›❯>]|```|~~~|\+\s+\d+\s+lines\b|Ran\s+)", stripped):
+        return False
+    if BOX_DRAWING_CHARS_RE.search(plain) or stripped.startswith(("|", "+ ", "- ", "@@ ")):
+        return False
+    if re.fullmatch(r"[\s\-─━═_=*]{3,}", stripped):
+        return False
+    return True
+
+
+def reflow_prose(lines: list[str]) -> list[str]:
+    """Join TUI hard-wrapped prose lines and dedent common 2-space left margin."""
+    if not lines:
+        return []
+    merged: list[str] = []
+    merged_plain: list[str] = []
+    last_raw_width = 0
+    in_fence = False
+
+    for raw in lines:
+        plain = strip_ansi(raw)
+        stripped = plain.strip()
+        if stripped.startswith(("```", "~~~")):
+            in_fence = not in_fence
+            merged.append(raw)
+            merged_plain.append(plain)
+            last_raw_width = 0
+            continue
+        if in_fence or not stripped:
+            merged.append(raw)
+            merged_plain.append(plain)
+            last_raw_width = 0
+            continue
+
+        curr_indent = len(plain) - len(plain.lstrip(" "))
+        raw_width = _visual_width(plain)
+        wraps_mid_token = bool(merged_plain) and merged_plain[-1].rstrip().endswith(("/", "-", "（", "("))
+        if (
+            merged
+            and (last_raw_width >= 38 or wraps_mid_token)
+            and curr_indent <= 4
+            and _prev_allows_reflow(merged_plain[-1])
+            and not _is_structural_line(plain)
+        ):
+            prev_r = merged_plain[-1].rstrip()
+            curr_l = plain.lstrip(" ")
+            p_last = prev_r[-1]
+            c_first = curr_l[0]
+            if p_last in "/-—–(“‘「『【（":
+                sep = ""
+            elif _is_cjk_or_fullwidth(p_last) or _is_cjk_or_fullwidth(c_first):
+                sep = ""
+            else:
+                sep = " "
+            merged[-1] = merged[-1].rstrip(" ") + sep + _lstrip_ansi_spaces(raw, None)
+            merged_plain[-1] = prev_r + sep + curr_l
+            last_raw_width = raw_width
+        else:
+            merged.append(raw)
+            merged_plain.append(plain)
+            last_raw_width = raw_width
+
+    nonempty_indents = [
+        len(p) - len(p.lstrip(" "))
+        for p in merged_plain
+        if p.strip()
+    ]
+    if not nonempty_indents:
+        return merged
+
+    min_indent = min(nonempty_indents)
+    if min_indent >= 1:
+        drop = min(min_indent, 4)
+        return [_lstrip_ansi_spaces(ln, drop) for ln in merged]
+
+    # Codex starts turn line 1 with '• ' at col 0 and indents subsequent paragraphs by 2 spaces.
+    out: list[str] = []
+    in_fence = False
+    for idx, (ln, plain) in enumerate(zip(merged, merged_plain)):
+        st = plain.strip()
+        if st.startswith(("```", "~~~")):
+            in_fence = not in_fence
+            out.append(ln)
+            continue
+        indent = len(plain) - len(plain.lstrip(" "))
+        prev_blank = idx > 0 and not merged_plain[idx - 1].strip()
+        if not in_fence and indent == 2 and (prev_blank or st.startswith("• ")):
+            out.append(_lstrip_ansi_spaces(ln, 2))
+        else:
+            out.append(ln)
+    return out
+
+
+def _is_plausible_path(token: str) -> bool:
+    core = re.sub(r":\d+(?::\d+)?$", "", token)
+    if not core or core.startswith("//") or core == "/":
+        return False
+    if core.startswith(("~/", "./", "../")):
+        return len(core) >= 3
+    if core.startswith("/"):
+        return core.count("/") >= 2
+    if core.count("/") >= 2:
+        return True
+    if core.endswith("/"):
+        stem = core[:-1]
+        return len(stem) >= 3 and bool(re.fullmatch(r"[a-z0-9_.-]+", stem))
+    return bool(re.search(r"/[^/\s]+\.[A-Za-z0-9]{1,8}$", core))
+
+
+def _render_chunk_with_links(raw_chunk: str) -> str:
+    parts: list[str] = []
+    pos = 0
+    for m in LINK_TOKEN_RE.finditer(raw_chunk):
+        url = m.group("url")
+        path = m.group("path")
+        if path and not _is_plausible_path(path):
+            continue
+        start, end = m.span()
+        if start > pos:
+            parts.append(html.escape(raw_chunk[pos:start], quote=False))
+        token_text = html.escape(raw_chunk[start:end], quote=False)
+        if url:
+            attr = html.escape(url, quote=True)
+            parts.append(f'<a class="out-link" data-url="{attr}" title="Open URL">{token_text}</a>')
+        else:
+            attr = html.escape(path, quote=True)
+            parts.append(f'<a class="out-link" data-path="{attr}" title="Open {attr}">{token_text}</a>')
+        pos = end
+    if pos < len(raw_chunk):
+        parts.append(html.escape(raw_chunk[pos:], quote=False))
+    return "".join(parts)
+
+
 def _style_css(style: dict[str, Any]) -> str:
     parts: list[str] = []
     if style["fg"]:
@@ -195,26 +419,37 @@ def _apply_sgr(params_raw: str, style: dict[str, Any]) -> None:
 
 
 def ansi_to_html(lines: list[str]) -> str:
-    """Convert ANSI SGR lines into safe HTML spans."""
+    """Convert ANSI SGR lines into safe HTML spans, coalescing identical adjacent styles."""
     style: dict[str, Any] = {
         "fg": None, "bg": None, "bold": False, "dim": False, "italic": False, "underline": False
     }
     out_lines: list[str] = []
     for line in lines:
-        parts: list[str] = []
+        segments: list[list[str]] = []
         pos = 0
         for match in SGR_OR_SEQ_RE.finditer(line):
             if match.start() > pos:
-                chunk = html.escape(line[pos:match.start()], quote=False)
+                raw_chunk = line[pos:match.start()]
                 css = _style_css(style)
-                parts.append(f'<span style="{css}">{chunk}</span>' if css else chunk)
+                if segments and segments[-1][0] == css:
+                    segments[-1][1] += raw_chunk
+                else:
+                    segments.append([css, raw_chunk])
             if match.group(1) is not None:
                 _apply_sgr(match.group(1), style)
             pos = match.end()
         if pos < len(line):
-            chunk = html.escape(line[pos:], quote=False)
+            raw_chunk = line[pos:]
             css = _style_css(style)
-            parts.append(f'<span style="{css}">{chunk}</span>' if css else chunk)
+            if segments and segments[-1][0] == css:
+                segments[-1][1] += raw_chunk
+            else:
+                segments.append([css, raw_chunk])
+        parts = [
+            f'<span style="{css}">{_render_chunk_with_links(raw_chunk)}</span>'
+            if css else _render_chunk_with_links(raw_chunk)
+            for css, raw_chunk in segments
+        ]
         out_lines.append("".join(parts))
     return "\n".join(out_lines)
 
@@ -371,8 +606,9 @@ def build_snapshot(state_root: Path, board_path: Path, lines: int = 120) -> dict
                 "session_name": live_info["session_name"],
                 "window_id": live_info["window_id"],
                 "window_index": live_info["window_index"],
-                "window_name": live_info["window_name"],
+                "window_name": clean_window_name(live_info["window_name"]),
                 "pane_id": pane_id,
+                "cwd": live_info.get("path", ""),
                 "source": source,
                 "source_label": SOURCE_LABELS.get(source, source.title() or "Agent"),
                 "unread": data.get("unread") is True,
@@ -399,9 +635,13 @@ def build_snapshot(state_root: Path, board_path: Path, lines: int = 120) -> dict
             timeout=1.5,
         )
         trimmed = trim_tui_footer(captured)
-        item["compact_html"] = ansi_to_html(trimmed[-10:])
-        item["full_html"] = ansi_to_html(trimmed[-100:])
-        item["line_count"] = len(trimmed)
+        trimmed, duration = extract_turn_duration(trimmed)
+        reflowed = reflow_prose(trimmed)
+        item["duration"] = duration
+        item["compact_html"] = ansi_to_html(reflowed[-18:])
+        item["full_html"] = ansi_to_html(reflowed[-100:])
+        item["plain_text"] = "\n".join(strip_ansi(ln) for ln in reflowed[-100:]).strip()
+        item["line_count"] = len(reflowed)
 
     return {"unread": kept_unread, "recent": kept_recent}
 
@@ -530,6 +770,39 @@ def open_pane(state_root: Path, tmux_socket: str, session_name: str, window_id: 
     refresh_badges(tmux_socket)
 
 
+def open_local_path(cwd: str, raw_path: str) -> bool:
+    token = raw_path.strip()
+    if not token:
+        return False
+    line_num = ""
+    loc_match = re.match(r"^(.*?):(\d+)(?::\d+)?$", token)
+    if loc_match:
+        token, line_num = loc_match.group(1), loc_match.group(2)
+    expanded = Path(token).expanduser()
+    if not expanded.is_absolute():
+        base = Path(cwd).expanduser() if cwd else Path.cwd()
+        target = (base / expanded).resolve()
+    else:
+        target = expanded.resolve()
+    if not target.exists():
+        return False
+    try:
+        if target.is_dir() or target.suffix.lower() in BROWSER_DOC_EXTS:
+            subprocess.run(["open", str(target)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
+            return True
+        neovide = shutil.which("neovide") or ("/opt/homebrew/bin/neovide" if Path("/opt/homebrew/bin/neovide").is_file() else "")
+        if neovide:
+            cmd = [neovide, str(target)]
+            if line_num:
+                cmd.append(f"+{line_num}")
+            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            return True
+        subprocess.run(["open", "-R", str(target)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
+        return True
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -554,6 +827,10 @@ def main() -> int:
     p_open.add_argument("--window-id", required=True)
     p_open.add_argument("--pane-id", required=True)
 
+    p_path = sub.add_parser("open-path")
+    p_path.add_argument("--cwd", default="")
+    p_path.add_argument("--path", required=True)
+
     args = parser.parse_args()
     if args.cmd == "snapshot":
         payload = build_snapshot(args.state_dir.expanduser(), args.board_path.expanduser(), args.lines)
@@ -571,6 +848,10 @@ def main() -> int:
         open_pane(args.state_dir.expanduser(), args.tmux_socket, args.session, args.window_id, args.pane_id)
         print(json.dumps({"ok": True}))
         return 0
+    if args.cmd == "open-path":
+        opened = open_local_path(args.cwd, args.path)
+        print(json.dumps({"ok": opened}))
+        return 0 if opened else 1
     return 1
 
 

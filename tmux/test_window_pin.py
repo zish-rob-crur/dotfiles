@@ -91,6 +91,16 @@ class WindowPinTests(unittest.TestCase):
             self.assertIn('[' + label + ']', pinned)
             self.assertIn('Ctrl+S → ' + next_label, pinned)
 
+    def test_exact_id_reaches_omitted_shell_and_respects_view(self):
+        pane = self.run_tmux('split-window', '-dP', '-F', '#{pane_id}', '-t', self.second, '/bin/sh').strip()
+        self.run_tmux('select-pane', '-t', pane, '-T', 'user@host')
+        self.assertNotIn(pane, [row[5] for row in self.entries()])
+        search = [sys.executable, str(ROOT / 'goto_search.py'), '--state-dir', str(self.state), '--query', pane]
+        result = subprocess.check_output(search, env=self.env, text=True).strip()
+        self.assertEqual(result.split('\t')[4:6], [self.second, pane])
+        self.assertEqual(subprocess.check_output(search + ['--view', 'pinned'], env=self.env), b'')
+        self.assertEqual(subprocess.check_output(search + ['--view', 'all', '--query', '%9999'], env=self.env), b'')
+
 
 if __name__ == '__main__':
     unittest.main()
