@@ -52,6 +52,7 @@ if [ ! -d ~/GithubRepos ]; then
 fi
 git clone https://github.com/zish-rob-crur/dotfiles.git ~/GithubRepos/dotfiles
 ~/GithubRepos/dotfiles/scripts/install_cargo_tools.sh
+~/GithubRepos/dotfiles/scripts/install_zish_skills.sh || exit 1
 
 # install zsh
 sudo apt-get install zsh

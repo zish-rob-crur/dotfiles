@@ -7,7 +7,8 @@
 - AstroNvim repo: `~/GitHubRepos/zish-rob-crur/AstroNvim`
 - AstroNvim remote: `https://github.com/zish-rob-crur/AstroNvim.git`
 - TPM dir: `~/.tmux/plugins/tpm`
-- Skill source of truth: `dotfiles/.agents/skills`
+- Dotfiles-specific skills: `dotfiles/.agents/skills`
+- Personal skills: `~/GitHubRepos/zish-rob-crur/zish-skills/skills`, cloned from `https://github.com/zish-rob-crur/zish-skills.git` when missing. Each skill is linked under `~/.agents/skills`, `~/.claude/skills`, and `~/.gemini/antigravity-cli/skills`.
 
 ## Managed links
 

@@ -39,7 +39,7 @@ Bootstrap and refresh zish local shell/editor/tmux config from the personal dotf
 - Do not use the dotfiles repo's legacy `dotfiles/nvim` link path for this skill.
 - Do not delete `~/.local/share/nvim`, `~/.local/state/nvim`, or other Neovim caches unless the user explicitly asks for a clean reset.
 - Backup conflicting files and directories by renaming them with a timestamp suffix before creating a managed symlink.
-- Keep personal/project skills in `dotfiles/.agents/skills`.
+- Keep dotfiles-specific skills in `dotfiles/.agents/skills`. The bootstrap links personal skills from `~/GitHubRepos/zish-rob-crur/zish-skills` for Codex, Claude Code, and agy, cloning the repository if missing.
 - Treat `<prefix> + M-a` as the managed tmux shortcut for launching temporary Codex/Claude popup sessions and background tasks.
 - Treat `<prefix> + A` as the managed tmux shortcut for restarting saved Codex/Claude Code panes after account or environment changes.
 - Stop if an expected repo path already exists but is not a git repository. Do not overwrite unknown directories.

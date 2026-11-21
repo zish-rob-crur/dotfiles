@@ -93,6 +93,7 @@ install_brew_packages
 install_cargo_tools
 
 git -C "${DOTFILES_DIR}" submodule update --init --recursive
+"${DOTFILES_DIR}/scripts/install_zish_skills.sh"
 
 # Symlinks (keep configs in sync with dotfiles)
 link_path "${DOTFILES_DIR}/.zshrc" "${HOME}/.zshrc"

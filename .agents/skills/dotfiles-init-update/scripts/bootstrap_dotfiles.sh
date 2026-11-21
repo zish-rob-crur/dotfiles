@@ -230,6 +230,7 @@ if [ "$MODE" = "update" ]; then
 fi
 ensure_submodules "$DOTFILES_REPO"
 ensure_dotfiles_links "$DOTFILES_REPO"
+DRY_RUN="$DRY_RUN" "${DOTFILES_REPO}/scripts/install_zish_skills.sh"
 if [ "$(uname -s)" = "Darwin" ]; then
   edit_anywhere_args=(--dotfiles-repo "$DOTFILES_REPO")
   if (( DRY_RUN )); then

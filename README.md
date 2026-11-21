@@ -188,9 +188,19 @@ git config --file ~/.gitconfig.local user.email me@zish-rob-crur.com
 
 Do not create `~/.gitconfig.local` on work machines unless a work identity is needed.
 
-## Codex Skills
+## Agent skills
 
-- Keep personal/project skills in this repo under `.agents/skills/<skill-name>`.
+Both bootstrap modes and the macOS and Linux init scripts link personal skills
+from `~/GitHubRepos/zish-rob-crur/zish-skills`. They clone the repository from
+GitHub when missing and reuse the local checkout, including uncommitted changes,
+on subsequent runs. Each `skills/<name>/SKILL.md` gets its directory linked into
+`~/.agents/skills` (Codex), `~/.claude/skills` (Claude Code), and
+`~/.gemini/antigravity-cli/skills` (Antigravity CLI).
+
+Edits to linked skills take effect in the linked files immediately. Rerun
+`scripts/install_zish_skills.sh` to link newly added skills, or pass `--dry-run`
+to preview changes. Conflicting entries are moved to a sibling `skills-backups`
+directory. Dotfiles-specific skills live under `.agents/skills/` in this repo.
 
 ## Init My Dev Linux
 
