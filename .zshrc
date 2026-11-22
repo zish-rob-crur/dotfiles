@@ -336,8 +336,6 @@ export MY_UID=$(id -u)
 export MY_GID=$(id -g)
 export PATH="/opt/homebrew/opt/curl/bin:$PATH"
 
-# 关闭 curl 的ipv6
-alias curl="curl -4"
 
 # .local bin
 export PATH="$HOME/.local/bin:$PATH"
